@@ -50,7 +50,7 @@ import {
 import { clearSecret, keyStatuses, recordCheck, revealSecret, setSecret } from './secrets'
 import { dropCache, getSettings, setSettings } from './settings'
 import { probeDurationMs, probeSize } from './services/audio'
-import { chatGptWebLogin, chatGptWebStatus } from './services/chatgpt-web'
+import { chatGptWebAttachChrome, chatGptWebLogin, chatGptWebStatus } from './services/chatgpt-web'
 import * as eleven from './services/elevenlabs'
 import * as gemini from './services/gemini'
 import * as hf from './services/higgsfield'
@@ -228,6 +228,7 @@ export function registerIpc(): void {
   // ChatGPT Web has no API key: the login lives in the browser profile.
   handle('chatgptWeb:status', () => chatGptWebStatus())
   handle('chatgptWeb:login', () => chatGptWebLogin())
+  handle('chatgptWeb:attach', () => chatGptWebAttachChrome())
 
   handle('export:start', (projectId: string, opts: ExportOptions) => startExport(projectId, opts))
   handle('export:defaultFolder', () => defaultExportFolder())

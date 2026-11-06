@@ -53,7 +53,9 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
   estimasi biaya (kuota free akun ChatGPT) dan tidak ada pembatalan sungguhan (`cancel` no-op; hasil yang sudah
   berjalan di browser dibuang). **Dua jalur browser:** kalau Chrome pengguna berjalan dengan remote debugging
   (port 9222, `CHATGPT_WEB_CDP_URL`), driver menumpang Chrome itu lewat CDP — sudah login, tanpa verifikasi bot,
-  dan browser pengguna tidak pernah ditutup driver; kalau tidak ada, driver meluncurkan profil baru yang diperkeras
+  dan browser pengguna tidak pernah ditutup driver; tombol "Pakai Chrome yang sudah login" di Pengaturan melakukan
+  restart Chrome itu otomatis (tutup → buka lagi dengan `--restore-last-session`, lalu tunggu port debug menjawab),
+  jadi pengguna tidak perlu perintah terminal. Kalau tidak ada, driver meluncurkan profil baru yang diperkeras
   (`--disable-blink-features=AutomationControlled` + init script sembunyikan `navigator.webdriver`) supaya
   pemeriksaan bot biasanya lolos sendiri.
 - Menambah penyedia visual baru: tambahkan ke `VisualProvider` (`types.ts`), katalog di `shared/visual.ts`,

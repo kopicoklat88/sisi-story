@@ -64,7 +64,8 @@ const api: StudioApi = {
   },
   chatgptWeb: {
     status: call('chatgptWeb:status'),
-    login: call('chatgptWeb:login')
+    login: call('chatgptWeb:login'),
+    attach: call('chatgptWeb:attach')
   },
   models: {
     list: call('models:list')

@@ -1,3 +1,4 @@
+import { execFile, spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -86,11 +87,19 @@ async function ensurePage(profileDir: string, executablePath?: string): Promise<
       // First choice: the user's own Chrome (already logged in, already trusted by bot checks).
       const cdp = await cdpContextOrNull()
       if (cdp) {
-        context = cdp
-        attachedViaCdp = true
-        const p = await context.newPage()
-        page = p
-        return p
+        try {
+          context = cdp
+          attachedViaCdp = true
+          const p = await context.newPage()
+          page = p
+          return p
+        } catch {
+          // The attached Chrome went away (e.g. it was restarted): drop the stale
+          // connection and fall through to the fresh-profile launch below.
+          cdpContext = null
+          cdpBrowser = null
+          attachedViaCdp = false
+        }
       }
       // Fallback: a fresh profile in the user's installed Chrome, hardened against bot checks.
       mkdirSync(profileDir, { recursive: true })
@@ -292,4 +301,111 @@ export async function closeChatGptWeb(): Promise<void> {
     return
   }
   if (c) await c.close().catch(() => {})
+}
+
+/** Runs a command and resolves no matter the outcome (quit helpers are best-effort). */
+function runQuiet(file: string, args: string[]): Promise<void> {
+  return new Promise((resolve) => {
+    execFile(file, args, () => resolve())
+  })
+}
+
+/** Launches a program detached, so the app never waits on the browser process. */
+function launchDetached(file: string, args: string[]): void {
+  const child = spawn(file, args, { detached: true, stdio: 'ignore' })
+  child.on('error', () => {})
+  child.unref()
+}
+
+async function waitFor(check: () => Promise<boolean>, timeoutMs: number, stepMs = 500): Promise<boolean> {
+  const started = Date.now()
+  for (;;) {
+    if (await check()) return true
+    if (Date.now() - started > timeoutMs) return false
+    await new Promise((r) => setTimeout(r, stepMs))
+  }
+}
+
+async function isChromeRunning(): Promise<boolean> {
+  if (process.platform === 'darwin') {
+    return new Promise((resolve) => {
+      execFile('pgrep', ['-x', 'Google Chrome'], (err) => resolve(!err))
+    })
+  }
+  if (process.platform === 'win32') {
+    return new Promise((resolve) => {
+      execFile('tasklist', ['/FI', 'IMAGENAME eq chrome.exe', '/NH'], (err, stdout) =>
+        resolve(!err && stdout.includes('chrome.exe'))
+      )
+    })
+  }
+  return new Promise((resolve) => {
+    execFile('pgrep', ['-x', 'google-chrome'], (err) => {
+      if (!err) return resolve(true)
+      execFile('pgrep', ['-x', 'chrome'], (err2) => resolve(!err2))
+    })
+  })
+}
+
+async function quitChrome(): Promise<void> {
+  if (process.platform === 'darwin') {
+    await runQuiet('osascript', ['-e', 'tell application "Google Chrome" to quit'])
+  } else if (process.platform === 'win32') {
+    await runQuiet('taskkill', ['/IM', 'chrome.exe'])
+  } else {
+    await runQuiet('pkill', ['-f', 'google-chrome'])
+  }
+}
+
+function findChromeWindows(): string | null {
+  const candidates = [
+    join(process.env.ProgramFiles ?? '', 'Google/Chrome/Application/chrome.exe'),
+    join(process.env['ProgramFiles(x86)'] ?? '', 'Google/Chrome/Application/chrome.exe'),
+    join(process.env.LocalAppData ?? '', 'Google/Chrome/Application/chrome.exe')
+  ]
+  return candidates.find((c) => existsSync(c)) ?? null
+}
+
+async function launchChromeWithDebugging(): Promise<void> {
+  const args = ['--remote-debugging-port=9222', '--restore-last-session']
+  if (process.platform === 'darwin') {
+    launchDetached('open', ['-a', 'Google Chrome', '--args', ...args])
+  } else if (process.platform === 'win32') {
+    const exe = findChromeWindows()
+    if (!exe) throw new Error('Google Chrome tidak ketemu di lokasi standar. Pasang Chrome dulu, lalu coba lagi.')
+    launchDetached(exe, args)
+  } else {
+    launchDetached('google-chrome', args)
+  }
+}
+
+async function waitForCdp(timeoutMs = 30000): Promise<boolean> {
+  return waitFor(async () => {
+    try {
+      const res = await fetch('http://127.0.0.1:9222/json/version')
+      return res.ok
+    } catch {
+      return false
+    }
+  }, timeoutMs)
+}
+
+/**
+ * Restarts the user's Chrome with remote debugging, so the driver can attach to the session
+ * that is already logged in. Tabs come back (--restore-last-session). The user does nothing
+ * by hand: one click in Settings does the whole restart and waits until the debug port answers.
+ */
+export async function chatGptWebAttachChrome(): Promise<{ attached: boolean }> {
+  await closeChatGptWeb()
+  if (await isChromeRunning()) {
+    await quitChrome()
+    const gone = await waitFor(async () => !(await isChromeRunning()), 15000)
+    if (!gone) throw new Error('Chrome tidak mau tertutup. Tutup Chrome secara manual, lalu coba lagi.')
+  }
+  await launchChromeWithDebugging()
+  const up = await waitForCdp()
+  if (!up) {
+    throw new Error('Chrome sudah dibuka lagi, tapi port debugging-nya belum siap. Tunggu sebentar lalu coba lagi.')
+  }
+  return { attached: true }
 }

@@ -99,6 +99,8 @@ export interface StudioApi {
     status(): Promise<{ loggedIn: boolean }>
     /** Opens the browser for the user to log in, and waits until the composer appears. */
     login(): Promise<{ loggedIn: boolean }>
+    /** Restarts the user's Chrome with remote debugging so the driver can attach to it. */
+    attach(): Promise<{ attached: boolean }>
   }
   models: {
     /** Live model list from the provider. Served from cache unless `refresh` is set or the cache is stale. */

@@ -592,6 +592,20 @@ function ChatGptWebSection() {
     }
   }
 
+  /** One click: the app restarts the user's Chrome with remote debugging, then logs in
+   * through the session that is already there. No manual Terminal command needed. */
+  const attachAndLogin = async (): Promise<void> => {
+    setBusy(true)
+    setNote('Chrome ditutup lalu dibuka lagi (tab pulih kembali)…')
+    try {
+      await window.api.chatgptWeb.attach()
+      await login()
+    } catch (e) {
+      setBusy(false)
+      setNote(errorText(e))
+    }
+  }
+
   return (
     <Card>
       <div className="flex items-center gap-3">
@@ -605,12 +619,15 @@ function ChatGptWebSection() {
       <p className="text-[13px] leading-relaxed text-ink-2">
         Gambar dibuat satu per satu di browser (butuh Google Chrome terpasang). Lembar karakter ikut dilampirkan supaya tokoh tetap sama.
         Hanya gambar — video AI tidak tersedia di penyedia ini, dan kalau ChatGPT menampilkan pemeriksaan bot atau tampilannya berubah,
-        pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang. Tips: kalau Chrome kamu dijalankan dengan remote debugging
-        (port 9222), aplikasi langsung memakai Chrome itu — sudah login, tanpa verifikasi bot.
+        pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang. Kalau Chrome kamu sudah login, pakai tombol kedua: aplikasi
+        menutup dan membuka lagi Chrome kamu (tab pulih kembali), lalu memakai sesi login itu — tanpa verifikasi bot, tanpa perintah terminal.
       </p>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => void login()} disabled={busy}>
           {busy ? 'Menunggu login di browser…' : loggedIn ? 'Buka browser & login ulang' : 'Buka browser & login'}
+        </Button>
+        <Button onClick={() => void attachAndLogin()} disabled={busy}>
+          Pakai Chrome yang sudah login
         </Button>
         {note && <span className="text-[13px] text-ink-2">{note}</span>}
       </div>
