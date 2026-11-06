@@ -385,15 +385,19 @@ function findChromeDarwin(): string | null {
   return candidates.find((c) => existsSync(c)) ?? null
 }
 
-async function launchChromeWithDebugging(): Promise<void> {
+async function launchChromeWithDebugging(attempt: number): Promise<void> {
   const args = ['--remote-debugging-port=9222', '--restore-last-session']
   if (process.platform === 'darwin') {
-    // Launch the binary directly: `open -a` does not reliably deliver --args when Chrome
-    // was just quit (the relaunch can hand off to the still-shutting-down instance and
-    // the debug flag never lands, so the port never answers).
-    const exe = findChromeDarwin()
-    if (!exe) throw new Error('Google Chrome tidak ketemu di /Applications. Pasang Chrome dulu, lalu coba lagi.')
-    launchDetached(exe, args)
+    if (attempt === 1) {
+      // `open -n` forces a NEW instance, so the flags cannot be dropped by handing off
+      // to an already-running Chrome (the usual way a relaunch silently loses the flag).
+      launchDetached('open', ['-n', '-a', 'Google Chrome', '--args', ...args])
+    } else {
+      // Fallback: the binary directly, so the flags are delivered no matter what.
+      const exe = findChromeDarwin()
+      if (!exe) throw new Error('Google Chrome tidak ketemu di /Applications. Pasang Chrome dulu, lalu coba lagi.')
+      launchDetached(exe, args)
+    }
   } else if (process.platform === 'win32') {
     const exe = findChromeWindows()
     if (!exe) throw new Error('Google Chrome tidak ketemu di lokasi standar. Pasang Chrome dulu, lalu coba lagi.')
@@ -432,6 +436,16 @@ async function isTcpPortOpen(port: number, host = '127.0.0.1', timeoutMs = 1500)
   })
 }
 
+/** True when the running Chrome was actually started with the debug flag (from its command line). */
+async function chromeHasDebugFlag(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('ps', ['-ax', '-o', 'args'], (err, stdout) => {
+      if (err) return resolve(false)
+      resolve(stdout.split('\n').some((l) => l.includes('remote-debugging-port')))
+    })
+  })
+}
+
 /**
  * Restarts the user's Chrome with remote debugging, so the driver can attach to the session
  * that is already logged in. Tabs come back (--restore-last-session). The user does nothing
@@ -441,6 +455,8 @@ async function isTcpPortOpen(port: number, host = '127.0.0.1', timeoutMs = 1500)
  * relaunching (the singleton lock is released a beat after the main process exits — launching
  * too early hands off to the dying instance and the debug flag never lands), and the whole
  * restart is tried once more with a longer settle when the port does not answer the first time.
+ * The second try launches differently (direct binary instead of `open -n`), so a quirk in one
+ * launch path does not doom both tries.
  */
 export async function chatGptWebAttachChrome(): Promise<{ attached: boolean }> {
   await closeChatGptWeb()
@@ -452,18 +468,26 @@ export async function chatGptWebAttachChrome(): Promise<{ attached: boolean }> {
     }
     // Let the old instance fully release its singleton lock before relaunching.
     await new Promise((r) => setTimeout(r, attempt === 1 ? 1500 : 3000))
-    await launchChromeWithDebugging()
+    await launchChromeWithDebugging(attempt)
     if (await waitForCdp()) return { attached: true }
   }
   const running = await isChromeRunning()
   const tcp = await isTcpPortOpen(9222)
+  const flagged = await chromeHasDebugFlag()
   if (!running) {
     throw new Error('Chrome tidak jalan setelah dibuka lagi. Buka Chrome secara manual, lalu klik tombol ini lagi.')
   }
-  if (!tcp) {
+  if (!tcp && !flagged) {
     throw new Error(
-      'Chrome sudah jalan, tapi port debugging-nya tidak aktif — flag debug tidak sampai ke Chrome. ' +
+      'Chrome sudah jalan, tapi port debugging-nya tidak aktif — flag debug tidak sampai ke Chrome ' +
+        '(perintah Chrome yang jalan tidak mengandung --remote-debugging-port). ' +
         'Tutup Chrome secara manual, lalu klik tombol ini lagi.'
+    )
+  }
+  if (!tcp && flagged) {
+    throw new Error(
+      'Chrome jalan dengan flag debug, tapi port 9222 tetap tertutup — kemungkinan port diblokir atau ' +
+        'dipakai program lain. Coba restart Mac, lalu klik tombol ini lagi.'
     )
   }
   throw new Error('Port debugging sudah terbuka tapi belum menjawab. Tunggu sebentar lalu coba lagi.')
