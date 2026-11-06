@@ -51,7 +51,11 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
   serial), browser tampil supaya pengguna bisa melihat dan menyelamatkan kalau ada pemeriksaan bot. Hanya gambar
   (GPT Image 1) — video AI tidak tersedia, dan UI menampilkannya sebagai catatan, bukan pilihan model. Tidak ada
   estimasi biaya (kuota free akun ChatGPT) dan tidak ada pembatalan sungguhan (`cancel` no-op; hasil yang sudah
-  berjalan di browser dibuang).
+  berjalan di browser dibuang). **Dua jalur browser:** kalau Chrome pengguna berjalan dengan remote debugging
+  (port 9222, `CHATGPT_WEB_CDP_URL`), driver menumpang Chrome itu lewat CDP — sudah login, tanpa verifikasi bot,
+  dan browser pengguna tidak pernah ditutup driver; kalau tidak ada, driver meluncurkan profil baru yang diperkeras
+  (`--disable-blink-features=AutomationControlled` + init script sembunyikan `navigator.webdriver`) supaya
+  pemeriksaan bot biasanya lolos sendiri.
 - Menambah penyedia visual baru: tambahkan ke `VisualProvider` (`types.ts`), katalog di `shared/visual.ts`,
   adapter di `services/visual.ts`, dan `DEFAULT_SETTINGS.visualModels`.
 

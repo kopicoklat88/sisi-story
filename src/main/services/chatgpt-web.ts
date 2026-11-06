@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { chromium, type BrowserContext, type Page } from 'playwright-core'
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 
 /**
  * GPT Image through chatgpt.com in a real browser, spending the ChatGPT account's free image
@@ -10,6 +10,15 @@ import { chromium, type BrowserContext, type Page } from 'playwright-core'
  * with Playwright: the user logs in once (the session persists in a profile folder), then each
  * image is a fresh chat with the prompt typed in, references attached, and the generated image
  * downloaded from the reply.
+ *
+ * Two ways to reach that browser. Preferred: attach to the user's own Chrome when it runs
+ * with --remote-debugging-port=9222 (CDP). That Chrome is already logged in and already
+ * trusted by bot checks, so there is no login and no verification wall; the app only opens
+ * its own chatgpt.com tab there and never closes the user's browser. Fallback: launch a
+ * fresh profile in the installed Chrome, hardened with --disable-blink-features=
+ * AutomationControlled plus an init script that hides navigator.webdriver, so bot checks
+ * usually pass on their own after a few seconds; the session then persists in the profile
+ * folder and later generations skip login.
  *
  * This is deliberately the fragile provider: if OpenAI changes the composer, shows a bot check,
  * or the account is logged out, generation fails with a plain message and the user retries after
@@ -20,6 +29,14 @@ import { chromium, type BrowserContext, type Page } from 'playwright-core'
 const CHATGPT_URL = process.env.CHATGPT_WEB_URL ?? 'https://chatgpt.com/'
 const LOGIN_WAIT_MS = 10 * 60 * 1000
 const IMAGE_TIMEOUT_MS = 10 * 60 * 1000
+/** Remote-debugging endpoint of the user's own Chrome. When reachable, the app drives that
+ * Chrome (already logged in, already trusted by bot checks) instead of launching a fresh,
+ * easily-flagged one. Set to an empty string to disable. */
+const CDP_URL = process.env.CHATGPT_WEB_CDP_URL ?? 'http://127.0.0.1:9222'
+/** Hides the automation flag so bot checks treat the fresh-profile browser more like a normal one. */
+const STEALTH_INIT = `Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+Object.defineProperty(navigator, 'languages', { get: () => ['id-ID', 'id', 'en-US', 'en'] });`
 
 export function defaultProfileDir(): string {
   return join(app.getPath('userData'), 'chatgpt-web')
@@ -35,20 +52,54 @@ function launchOptions(executablePath?: string): { channel?: string; executableP
 let context: BrowserContext | null = null
 let page: Page | null = null
 let starting: Promise<Page> | null = null
+let cdpBrowser: Browser | null = null
+let cdpContext: BrowserContext | null = null
+/** True when the page lives in the user's own Chrome: never close it on cleanup. */
+let attachedViaCdp = false
 /** Generations run one at a time: the web UI has a single composer. */
 let queue: Promise<unknown> = Promise.resolve()
 
+/** Connects to the user's own Chrome when it runs with --remote-debugging-port=9222.
+ * Returns null fast when no such Chrome is running. The connection is kept in module state
+ * so status checks and later generations reuse it instead of opening a new one each time. */
+async function cdpContextOrNull(): Promise<BrowserContext | null> {
+  if (cdpContext) return cdpContext
+  if (!CDP_URL) return null
+  try {
+    cdpBrowser = await chromium.connectOverCDP(CDP_URL, { timeout: 3000 })
+    const contexts = cdpBrowser.contexts()
+    // Prefer the context that already has tabs (the user's main window); the default
+    // context of a CDP-attached browser is often empty.
+    const ctx = contexts.find((c) => c.pages().length > 0) ?? contexts[0] ?? null
+    if (!ctx) return null
+    cdpContext = ctx
+    return ctx
+  } catch {
+    return null
+  }
+}
+
 async function ensurePage(profileDir: string, executablePath?: string): Promise<Page> {
-  if (page) return page
+  if (page && !page.isClosed()) return page
   if (!starting) {
     starting = (async () => {
+      // First choice: the user's own Chrome (already logged in, already trusted by bot checks).
+      const cdp = await cdpContextOrNull()
+      if (cdp) {
+        context = cdp
+        attachedViaCdp = true
+        const p = await context.newPage()
+        page = p
+        return p
+      }
+      // Fallback: a fresh profile in the user's installed Chrome, hardened against bot checks.
       mkdirSync(profileDir, { recursive: true })
       try {
         context = await chromium.launchPersistentContext(profileDir, {
           headless: false,
           viewport: { width: 1280, height: 900 },
           // Never send loopback traffic through a proxy (the test mock, and any local page).
-          args: ['--proxy-bypass-list=<-loopback>'],
+          args: ['--proxy-bypass-list=<-loopback>', '--disable-blink-features=AutomationControlled'],
           ...launchOptions(executablePath)
         })
       } catch (e) {
@@ -58,6 +109,7 @@ async function ensurePage(profileDir: string, executablePath?: string): Promise<
             `(${(e as Error).message})`
         )
       }
+      await context.addInitScript(STEALTH_INIT).catch(() => {})
       const p = context.pages()[0] ?? (await context.newPage())
       page = p
       return p
@@ -82,6 +134,17 @@ async function isLoggedIn(p: Page): Promise<boolean> {
 }
 
 export async function chatGptWebStatus(profileDir = defaultProfileDir(), executablePath?: string): Promise<{ loggedIn: boolean }> {
+  // In the user's own Chrome, look at the tabs they already have; never open a new tab just to check.
+  if ((!page || page.isClosed()) && !starting) {
+    const cdp = await cdpContextOrNull()
+    if (cdp) {
+      const tabs = cdp.pages().filter((t) => t.url().startsWith(CHATGPT_URL))
+      for (const t of tabs) {
+        if (await isLoggedIn(t)) return { loggedIn: true }
+      }
+      return { loggedIn: false }
+    }
+  }
   const p = await ensurePage(profileDir, executablePath)
   if (!p.url().startsWith(CHATGPT_URL)) await p.goto(CHATGPT_URL, { waitUntil: 'domcontentloaded' }).catch(() => {})
   return { loggedIn: await isLoggedIn(p) }
@@ -217,8 +280,16 @@ export async function chatGptWebImage(
 
 export async function closeChatGptWeb(): Promise<void> {
   const c = context
+  const wasCdp = attachedViaCdp
   context = null
   page = null
   starting = null
+  attachedViaCdp = false
+  cdpContext = null
+  cdpBrowser = null
+  if (wasCdp) {
+    // The browser belongs to the user: only drop our connection, never close their Chrome.
+    return
+  }
   if (c) await c.close().catch(() => {})
 }

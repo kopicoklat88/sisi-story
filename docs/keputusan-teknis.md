@@ -109,3 +109,15 @@ ChatGPT sering berubah. Gambar ditunggu lewat `img[src*="oaiusercontent"]` yang 
 satu waktu; pembatalan hanya membuang hasil di sisi kita. Penyedia ini gambar saja — `getVisualVideoModel`
 mengembalikan null untuknya dan semua pemakai (ModelSection, StoryboardStep, `generateClipVideo`) menanganinya
 sebagai "tidak ada video".
+
+### ChatGPT Web menumpang Chrome pengguna (CDP) supaya lolos verifikasi bot
+Profil baru yang diluncurkan Playwright mudah dicurigai Cloudflare (tanpa cookie, tanpa riwayat, flag otomasi
+terlihat), jadi login sering mentok di halaman verifikasi bot. Jalur utama sekarang: kalau Chrome pengguna berjalan
+dengan `--remote-debugging-port=9222`, driver menyambung lewat CDP (`chromium.connectOverCDP`, endpoint default
+`http://127.0.0.1:9222`, bisa diubah/dimatikan lewat `CHATGPT_WEB_CDP_URL`) dan memakai tab baru di Chrome itu —
+Chrome yang sudah login dan sudah dipercaya, jadi tanpa login ulang dan tanpa verifikasi. `status` di jalur ini
+hanya memeriksa tab chatgpt.com yang sudah ada (tidak membuka tab baru), dan `closeChatGptWeb` tidak pernah
+menutup browser pengguna (hanya memutus sambungan). Kalau tidak ada Chrome ber-debug port, driver jatuh ke profil
+baru seperti sebelumnya, tapi diperkeras: `--disable-blink-features=AutomationControlled` + init script yang
+menyembunyikan `navigator.webdriver` (plus `plugins`/`languages` normal) supaya pemeriksaan bot biasanya lolos
+sendiri dalam beberapa detik.

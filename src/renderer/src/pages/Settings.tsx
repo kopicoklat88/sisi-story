@@ -605,7 +605,8 @@ function ChatGptWebSection() {
       <p className="text-[13px] leading-relaxed text-ink-2">
         Gambar dibuat satu per satu di browser (butuh Google Chrome terpasang). Lembar karakter ikut dilampirkan supaya tokoh tetap sama.
         Hanya gambar — video AI tidak tersedia di penyedia ini, dan kalau ChatGPT menampilkan pemeriksaan bot atau tampilannya berubah,
-        pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang.
+        pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang. Tips: kalau Chrome kamu dijalankan dengan remote debugging
+        (port 9222), aplikasi langsung memakai Chrome itu — sudah login, tanpa verifikasi bot.
       </p>
       <div className="flex items-center gap-3">
         <Button onClick={() => void login()} disabled={busy}>
