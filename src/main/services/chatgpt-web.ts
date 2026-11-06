@@ -15,7 +15,9 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
  * Two ways to reach that browser. Preferred: attach to the user's own Chrome when it runs
  * with --remote-debugging-port=9222 (CDP). That Chrome is already logged in and already
  * trusted by bot checks, so there is no login and no verification wall; the app only opens
- * its own chatgpt.com tab there and never closes the user's browser. Fallback: launch a
+ * its own chatgpt.com tab there and never closes the user's browser. When the user already
+ * has a chatgpt.com tab open, the app reuses that tab instead of opening a new one, so no
+ * fresh navigation (and no fresh bot check) happens at all. Fallback: launch a
  * fresh profile in the installed Chrome, hardened with --disable-blink-features=
  * AutomationControlled plus an init script that hides navigator.webdriver, so bot checks
  * usually pass on their own after a few seconds; the session then persists in the profile
@@ -90,7 +92,13 @@ async function ensurePage(profileDir: string, executablePath?: string): Promise<
         try {
           context = cdp
           attachedViaCdp = true
-          const p = await context.newPage()
+          // Prefer a chatgpt.com tab the user already has open: it is already logged in and
+          // already past any bot check, so reusing it means no fresh navigation and no new
+          // verification wall. Only open a new tab when there is none.
+          const existing = context
+            .pages()
+            .find((t) => !t.isClosed() && t.url().startsWith(CHATGPT_URL))
+          const p = existing ?? (await context.newPage())
           page = p
           return p
         } catch {

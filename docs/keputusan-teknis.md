@@ -115,13 +115,15 @@ Profil baru yang diluncurkan Playwright mudah dicurigai Cloudflare (tanpa cookie
 terlihat), jadi login sering mentok di halaman verifikasi bot. Jalur utama sekarang: kalau Chrome pengguna berjalan
 dengan `--remote-debugging-port=9222`, driver menyambung lewat CDP (`chromium.connectOverCDP`, endpoint default
 `http://127.0.0.1:9222`, bisa diubah/dimatikan lewat `CHATGPT_WEB_CDP_URL`) dan memakai tab baru di Chrome itu —
-Chrome yang sudah login dan sudah dipercaya, jadi tanpa login ulang dan tanpa verifikasi. `status` di jalur ini
-hanya memeriksa tab chatgpt.com yang sudah ada (tidak membuka tab baru), dan `closeChatGptWeb` tidak pernah
-menutup browser pengguna (hanya memutus sambungan). Supaya pengguna tidak perlu menutup dan membuka Chrome
-sendiri, tombol "Pakai Chrome yang sudah login" di Pengaturan memanggil `chatGptWebAttachChrome`: tutup Chrome
-(macOS `osascript`, Windows `taskkill`, Linux `pkill`), tunggu prosesnya hilang, buka lagi dengan
-`--remote-debugging-port=9222 --restore-last-session` (tab pulih kembali), lalu tunggu port debug menjawab
-(maksimal 30 detik). Kalau tidak ada Chrome ber-debug port, driver jatuh ke profil baru seperti sebelumnya, tapi
-diperkeras: `--disable-blink-features=AutomationControlled` + init script yang menyembunyikan `navigator.webdriver`
-(plus `plugins`/`languages` normal) supaya pemeriksaan bot biasanya lolos sendiri dalam beberapa detik. Kalau
-Chrome yang ditempel mati di tengah jalan, `ensurePage` membuang koneksi basi itu dan jatuh ke profil baru.
+Chrome yang sudah login dan sudah dipercaya, jadi tanpa login ulang dan tanpa verifikasi. Kalau pengguna sudah
+punya tab chatgpt.com yang terbuka, driver memakai tab itu langsung (tanpa navigasi baru, jadi tanpa pemicu
+verifikasi baru); `status` di jalur ini hanya memeriksa tab chatgpt.com yang sudah ada (tidak membuka tab baru),
+dan `closeChatGptWeb` tidak pernah menutup browser pengguna (hanya memutus sambungan). Supaya pengguna tidak perlu
+menutup dan membuka Chrome sendiri, tombol "Pakai Chrome yang sudah login" di Pengaturan memanggil
+`chatGptWebAttachChrome`: tutup Chrome (macOS `osascript`, Windows `taskkill`, Linux `pkill`), tunggu prosesnya
+hilang, buka lagi dengan `--remote-debugging-port=9222 --restore-last-session` (tab pulih kembali), lalu tunggu
+port debug menjawab (maksimal 30 detik). Kalau tidak ada Chrome ber-debug port, driver jatuh ke profil baru seperti
+sebelumnya, tapi diperkeras: `--disable-blink-features=AutomationControlled` + init script yang menyembunyikan
+`navigator.webdriver` (plus `plugins`/`languages` normal) supaya pemeriksaan bot biasanya lolos sendiri dalam
+beberapa detik. Kalau Chrome yang ditempel mati di tengah jalan, `ensurePage` membuang koneksi basi itu dan jatuh
+ke profil baru.
