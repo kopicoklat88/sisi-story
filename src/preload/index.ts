@@ -62,6 +62,10 @@ const api: StudioApi = {
     testKey: call('settings:testKey'),
     voices: call('settings:voices')
   },
+  chatgptWeb: {
+    status: call('chatgptWeb:status'),
+    login: call('chatgptWeb:login')
+  },
   models: {
     list: call('models:list')
   },

@@ -12,6 +12,7 @@ import type {
   NewProjectInput,
   ProjectSnapshot,
   TtsProvider,
+  VisualProvider,
   VoiceOption,
   WordTiming
 } from '@shared/types'
@@ -49,6 +50,7 @@ import {
 import { clearSecret, keyStatuses, recordCheck, revealSecret, setSecret } from './secrets'
 import { dropCache, getSettings, setSettings } from './settings'
 import { probeDurationMs, probeSize } from './services/audio'
+import { chatGptWebLogin, chatGptWebStatus } from './services/chatgpt-web'
 import * as eleven from './services/elevenlabs'
 import * as gemini from './services/gemini'
 import * as hf from './services/higgsfield'
@@ -110,8 +112,8 @@ export function registerIpc(): void {
   handle('whisper:remove', () => removeModel())
   handle('whisper:openFolder', () => openModelFolder())
   handle('generate:cancel', (jobId: string) => cancelJob(jobId))
-  handle('generate:estimate', (kind: 'image' | 'video', modelId: string, aspect: AspectRatio, seconds?: number, resolution?: string | null) =>
-    estimateCredits(kind, modelId, aspect, seconds, resolution)
+  handle('generate:estimate', (provider: VisualProvider, kind: 'image' | 'video', modelId: string, aspect: AspectRatio, seconds?: number, resolution?: string | null) =>
+    estimateCredits(provider, kind, modelId, aspect, seconds, resolution)
   )
 
   handle('assets:setActive', (clipId: string, assetId: string) => setActiveAsset(clipId, assetId))
@@ -222,6 +224,10 @@ export function registerIpc(): void {
     if (provider === 'gemini') return gemini.listVoices()
     return eleven.listVoices()
   })
+
+  // ChatGPT Web has no API key: the login lives in the browser profile.
+  handle('chatgptWeb:status', () => chatGptWebStatus())
+  handle('chatgptWeb:login', () => chatGptWebLogin())
 
   handle('export:start', (projectId: string, opts: ExportOptions) => startExport(projectId, opts))
   handle('export:defaultFolder', () => defaultExportFolder())

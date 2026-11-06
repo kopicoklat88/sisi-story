@@ -19,9 +19,41 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
 | Penyedia (`ApiProvider`) | Dipakai untuk |
 |---|---|
 | `higgsfield` | gambar, lembar karakter, video |
-| `gemini` | LLM (naskah/visual) dan Gemini TTS |
+| `gemini` | LLM (naskah/visual), Gemini TTS, dan visual (Nano Banana + Omni Flash) |
 | `elevenlabs` | TTS |
 | `openrouter`, `groq`, `custom` | LLM lewat API kompatibel OpenAI |
+| ChatGPT Web (tanpa kunci) | visual gambar saja, lewat browser |
+
+## Visual (`services/visual.ts`, `services/gemini-visual.ts`, `services/chatgpt-web.ts`, `shared/visual.ts`)
+
+- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, atau `chatgpt-web`, dipilih per proyek
+  (`project.visualProvider`, kolom `visual_provider`; proyek lama tanpa kolom dibaca sebagai `higgsfield`).
+  `generation.ts` tidak lagi memanggil Higgsfield langsung.
+- Higgsfield: seperti sebelumnya — gambar lewat `submitImage`, video lewat `submitVideo`, hasil diunduh dari URL,
+  estimasi kredit dari endpoint `estimate`.
+- Gemini: lewat **Interactions API** (REST mentah, `POST /v1beta/interactions`, header `Api-Revision: 2026-05-20`),
+  bukan SDK. Gambar: Nano Banana (`gemini-nano-banana-2.1` bawaan, plus `gemini-3-pro-image`,
+  `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, `gemini-2.5-flash-image`); video: Omni Flash
+  (`gemini-omni-1.2-flash`, 3–15 detik, audio asli). Referensi dikirim inline sebagai base64 (maksimal 6 gambar);
+  gambar bisa memakai beberapa referensi, video memakai gambar klip sebagai first frame. Hasil diambil dengan
+  polling (`GET /interactions/{id}`, interval 10 detik) dari `steps[]` → `model_output` → `content` bertipe
+  `image`/`video` (base64). **Background wajib `store: true`** — dengan `store: false` API menolaknya
+  (HTTP 400, "store=true is required for background interactions").
+- Gemini tidak punya endpoint estimasi: `estimate` selalu mengembalikan null, dan UI menampilkan catatan tagihan
+  per pemakaian, bukan kredit. Gemini juga tidak punya endpoint pembatalan: `cancel` adalah no-op dan menghentikan
+  polling di sisi kita.
+- Semua gambar Gemini membawa watermark SynthID.
+- ChatGPT Web: **tanpa API** — ChatGPT web tidak punya API gambar publik, jadi driver (`services/chatgpt-web.ts`,
+  Playwright) menyetir chatgpt.com di browser sungguhan: login sekali (sesi tersimpan di folder profil
+  `chatgpt-web` di data aplikasi), tiap gambar dibuat di chat baru dengan prompt diketik, lembar karakter
+  dilampirkan lewat file picker (maksimal 3), lalu gambar hasil diunduh dari balasan. Butuh Google Chrome terpasang
+  (Playwright memakai `channel: 'chrome'`, tanpa unduh browser tambahan). Satu gambar dalam satu waktu (antre
+  serial), browser tampil supaya pengguna bisa melihat dan menyelamatkan kalau ada pemeriksaan bot. Hanya gambar
+  (GPT Image 1) — video AI tidak tersedia, dan UI menampilkannya sebagai catatan, bukan pilihan model. Tidak ada
+  estimasi biaya (kuota free akun ChatGPT) dan tidak ada pembatalan sungguhan (`cancel` no-op; hasil yang sudah
+  berjalan di browser dibuang).
+- Menambah penyedia visual baru: tambahkan ke `VisualProvider` (`types.ts`), katalog di `shared/visual.ts`,
+  adapter di `services/visual.ts`, dan `DEFAULT_SETTINGS.visualModels`.
 
 ## LLM (`services/llm.ts`, `services/gemini.ts`)
 

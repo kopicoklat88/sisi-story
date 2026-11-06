@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { AspectRatio, CreditEstimate } from '@shared/types'
+import type { AspectRatio, CreditEstimate, VisualProvider } from '@shared/types'
 
-/** Higgsfield's price for one request. undefined while loading, null when it cannot be estimated (no key, offline). */
+/** The provider's price for one request. undefined while loading, null when it cannot be estimated (no key, offline, or Gemini per-use billing). */
 export function useEstimate(
+  provider: VisualProvider,
   kind: 'image' | 'video',
   modelId: string,
   aspect: AspectRatio,
@@ -14,13 +15,13 @@ export function useEstimate(
     let alive = true
     setValue(undefined)
     window.api.generate
-      .estimate(kind, modelId, aspect, seconds, resolution)
+      .estimate(provider, kind, modelId, aspect, seconds, resolution)
       .then((v) => alive && setValue(v))
       .catch(() => alive && setValue(null))
     return () => {
       alive = false
     }
-  }, [kind, modelId, aspect, seconds, resolution])
+  }, [provider, kind, modelId, aspect, seconds, resolution])
   return value
 }
 
@@ -29,13 +30,14 @@ export function useEstimate(
  * Results are cached in the main process, so reopening a picker is instant.
  */
 export function useEstimates(
+  provider: VisualProvider,
   kind: 'image' | 'video',
   ids: string[],
   aspect: AspectRatio,
   seconds: number | undefined,
   enabled: boolean
 ): Record<string, CreditEstimate | null> {
-  const context = `${kind}|${aspect}|${seconds ?? ''}|${ids.join(',')}`
+  const context = `${provider}|${kind}|${aspect}|${seconds ?? ''}|${ids.join(',')}`
   const [state, setState] = useState<{ context: string; map: Record<string, CreditEstimate | null> }>({ context, map: {} })
 
   useEffect(() => {
@@ -45,7 +47,7 @@ export function useEstimates(
     const worker = async (): Promise<void> => {
       while (alive && queue.length) {
         const id = queue.shift()!
-        const value = await window.api.generate.estimate(kind, id, aspect, seconds).catch(() => null)
+        const value = await window.api.generate.estimate(provider, kind, id, aspect, seconds).catch(() => null)
         if (!alive) return
         setState((s) => ({ context, map: { ...(s.context === context ? s.map : {}), [id]: value } }))
       }

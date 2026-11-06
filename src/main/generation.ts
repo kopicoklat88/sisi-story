@@ -1,9 +1,17 @@
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { dirname, extname } from 'node:path'
 import { estimateWordTimings } from '@shared/captions'
 import { stripVoiceTags } from '@shared/speech'
-import { getImageModel, getVideoModel, imageBody, maxRefs, promptLimit, videoBody, type HfModel } from '@shared/higgsfield'
+import {
+  getVisualImageModel,
+  getVisualVideoModel,
+  maxVisualRefs,
+  visualPromptLimit,
+  type VisualModel,
+  type VisualProvider
+} from '@shared/visual'
 import { getStyle } from '@shared/styles'
 import type { AspectRatio, Asset, Character, Clip, CreditEstimate, Job, Project, WordTiming } from '@shared/types'
 import { getDb } from './db'
@@ -32,18 +40,31 @@ import { dropCache, getSettings, readCache, writeCache } from './settings'
 import { probeDurationMs, probeSize } from './services/audio'
 import * as eleven from './services/elevenlabs'
 import * as gemini from './services/gemini'
-import * as hf from './services/higgsfield'
-import { downloadTo, sleep } from './services/http'
+import { sleep } from './services/http'
+import { adapter, type VisualInput, type VisualRef } from './services/visual'
 
 const DAY = 24 * 60 * 60 * 1000
 
-function extFromType(contentType: string, url: string, fallback: string): string {
-  if (/png/.test(contentType)) return '.png'
-  if (/jpe?g/.test(contentType)) return '.jpg'
-  if (/webp/.test(contentType)) return '.webp'
-  if (/mp4/.test(contentType)) return '.mp4'
-  const m = /\.(png|jpe?g|webp|mp4|mov)(\?|$)/i.exec(url)
-  return m ? `.${m[1].toLowerCase()}` : fallback
+function extFromMime(mime: string, fallback: string): string {
+  if (/png/.test(mime)) return '.png'
+  if (/jpe?g/.test(mime)) return '.jpg'
+  if (/webp/.test(mime)) return '.webp'
+  if (/mp4/.test(mime)) return '.mp4'
+  return fallback
+}
+
+function mimeFor(absPath: string): string {
+  switch (extname(absPath).toLowerCase()) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.webp':
+      return 'image/webp'
+    case '.mp4':
+      return 'video/mp4'
+    default:
+      return 'image/png'
+  }
 }
 
 function saveFile(projectId: string, folder: string, ext: string, bytes: Buffer): string {
@@ -60,14 +81,18 @@ async function publicUrlFor(asset: Asset, signal: AbortSignal): Promise<string> 
   const up = asset.meta.uploadedUrl as string | undefined
   const at = asset.meta.uploadedAt as number | undefined
   if (up && at && Date.now() - at < 0.5 * DAY) return up
-  const url = await hf.uploadFile(assetAbsPath(asset.projectId, asset.localPath), signal)
+  const url = await adapter('higgsfield').uploadReference!(assetAbsPath(asset.projectId, asset.localPath), signal)
   updateAssetMeta(asset.id, { ...asset.meta, uploadedUrl: url, uploadedAt: Date.now() })
   return url
 }
 
-function imageProgress(ctx: TaskCtx, what: string) {
-  return (status: hf.HfStatus, elapsed: number): void => {
-    if (status === 'queued') ctx.progress(0.12, 'Mengantre di Higgsfield')
+function providerLabel(provider: VisualProvider): string {
+  return provider === 'gemini' ? 'Gemini' : provider === 'chatgpt-web' ? 'ChatGPT Web' : 'Higgsfield'
+}
+
+function imageProgress(ctx: TaskCtx, what: string, provider: VisualProvider) {
+  return (status: string, elapsed: number): void => {
+    if (status === 'queued') ctx.progress(0.12, `Mengantre di ${providerLabel(provider)}`)
     else ctx.progress(0.15 + 0.75 * (1 - Math.exp(-elapsed / 45_000)), what)
   }
 }
@@ -141,46 +166,70 @@ async function waitForSheets(characterIds: string[], signal: AbortSignal): Promi
   }
 }
 
-async function referenceUrls(model: HfModel, chars: Character[], signal: AbortSignal): Promise<{ urls: string[]; names: string[] }> {
-  const limit = maxRefs(model)
-  if (limit === 0) return { urls: [], names: [] }
+async function referenceRefs(
+  provider: VisualProvider,
+  model: VisualModel,
+  chars: Character[],
+  signal: AbortSignal
+): Promise<{ refs: VisualRef[]; names: string[] }> {
+  const limit = maxVisualRefs(model)
+  if (limit === 0) return { refs: [], names: [] }
   await waitForSheets(
     chars.map((c) => c.id),
     signal
   )
-  const urls: string[] = []
+  const refs: VisualRef[] = []
   const names: string[] = []
   for (const c of chars) {
     const fresh = getCharacter(c.id)
     const sheet = getAsset(fresh.sheetAssetId)
-    if (!sheet || urls.length >= limit) continue
-    urls.push(await publicUrlFor(sheet, signal))
+    if (!sheet || refs.length >= limit) continue
+    const abs = assetAbsPath(sheet.projectId, sheet.localPath)
+    // Gemini and ChatGPT Web read the sheet inline; Higgsfield fetches it from a public URL.
+    const ref: VisualRef = { mime: mimeFor(abs) }
+    if (provider === 'gemini' || provider === 'chatgpt-web') ref.bytes = await readFile(abs)
+    else ref.publicUrl = await publicUrlFor(sheet, signal)
+    refs.push(ref)
     names.push(fresh.name)
   }
-  return { urls, names }
+  return { refs, names }
 }
 
-// ---------- finishing a Higgsfield request (also used to resume after a restart) ----------
+/** The clip image as a video reference: first frame for either provider. */
+async function imageRef(provider: VisualProvider, asset: Asset, signal: AbortSignal): Promise<VisualRef> {
+  const abs = assetAbsPath(asset.projectId, asset.localPath)
+  const ref: VisualRef = { mime: mimeFor(abs) }
+  if (provider === 'gemini' || provider === 'chatgpt-web') ref.bytes = await readFile(abs)
+  else ref.publicUrl = await publicUrlFor(asset, signal)
+  return ref
+}
 
-interface HfPayload {
+// ---------- finishing a visual request (also used to resume after a restart) ----------
+
+interface VisualPayload {
   target: 'clip-image' | 'sheet' | 'clip-video'
+  provider: VisualProvider
   model: string
   prompt: string
 }
 
-async function finishHiggsfield(ctx: TaskCtx, job: Job, requestId: string, payload: HfPayload): Promise<string> {
+async function finishVisual(ctx: TaskCtx, job: Job, remoteId: string, payload: VisualPayload): Promise<string> {
   const isVideo = payload.target === 'clip-video'
-  const result = await hf.waitForResult(
-    requestId,
-    imageProgress(ctx, isVideo ? 'Membuat video' : payload.target === 'sheet' ? 'Membuat lembar karakter' : 'Membuat gambar'),
+  const out = await adapter(payload.provider).waitForResult(
+    remoteId,
+    isVideo ? 'video' : 'image',
+    imageProgress(
+      ctx,
+      isVideo ? 'Membuat video' : payload.target === 'sheet' ? 'Membuat lembar karakter' : 'Membuat gambar',
+      payload.provider
+    ),
     ctx.signal,
     isVideo ? 30 * 60 * 1000 : 15 * 60 * 1000
   )
-  const url = isVideo ? result.video?.url : result.images?.[0]?.url
-  if (!url) throw new Error('Higgsfield selesai tanpa file hasil')
-  ctx.progress(0.93, 'Mengunduh hasil')
-  const { bytes, contentType } = await downloadTo(url, ctx.signal)
-  const rel = saveFile(job.projectId, isVideo ? 'videos' : 'images', extFromType(contentType, url, isVideo ? '.mp4' : '.png'), bytes)
+  const file = isVideo ? out.video : out.images?.[0]
+  if (!file) throw new Error(`${providerLabel(payload.provider)} selesai tanpa file hasil`)
+  ctx.progress(0.93, 'Menyimpan hasil')
+  const rel = saveFile(job.projectId, isVideo ? 'videos' : 'images', extFromMime(file.mime, isVideo ? '.mp4' : '.png'), file.bytes)
   const abs = assetAbsPath(job.projectId, rel)
   const size = await probeSize(abs)
   const durationMs = isVideo ? await probeDurationMs(abs).catch(() => null) : null
@@ -189,11 +238,11 @@ async function finishHiggsfield(ctx: TaskCtx, job: Job, requestId: string, paylo
     clipId: job.clipId,
     characterId: job.characterId,
     kind: isVideo ? 'video' : 'image',
-    provider: 'higgsfield',
+    provider: payload.provider,
     model: payload.model,
     prompt: payload.prompt,
-    remoteId: requestId,
-    remoteUrl: url,
+    remoteId,
+    remoteUrl: out.remoteUrl ?? null,
     localPath: rel,
     durationMs,
     width: size?.width ?? null,
@@ -218,20 +267,23 @@ async function finishHiggsfield(ctx: TaskCtx, job: Job, requestId: string, paylo
   return asset.id
 }
 
-function startHiggsfield(job: Job, build: (ctx: TaskCtx) => Promise<{ endpoint: string; body: Record<string, unknown>; payload: HfPayload }>): Job {
+function startVisual(job: Job, build: (ctx: TaskCtx) => Promise<{ input: VisualInput; payload: VisualPayload }>): Job {
   emit.job(job)
-  return runJob(job, 'higgsfield', async (ctx) => {
+  return runJob(job, 'visual', async (ctx) => {
     ctx.progress(0.04, 'Menyiapkan prompt')
-    const { endpoint, body, payload } = await build(ctx)
-    ctx.progress(0.08, 'Mengirim ke Higgsfield')
-    const requestId = await hf.submit(endpoint, body, ctx.signal)
-    ctx.setRemote(requestId)
+    const { input, payload } = await build(ctx)
+    ctx.progress(0.08, `Mengirim ke ${providerLabel(payload.provider)}`)
+    const remoteId =
+      payload.target === 'clip-video'
+        ? await adapter(payload.provider).submitVideo(input, ctx.signal)
+        : await adapter(payload.provider).submitImage(input, ctx.signal)
+    ctx.setRemote(remoteId)
     updateJobPayload(job.id, payload)
-    return finishHiggsfield(ctx, job, requestId, payload)
+    return finishVisual(ctx, job, remoteId, payload)
   })
 }
 
-function updateJobPayload(jobId: string, payload: HfPayload): void {
+function updateJobPayload(jobId: string, payload: VisualPayload): void {
   getDb().prepare('UPDATE jobs SET payload_json = ? WHERE id = ?').run(JSON.stringify(payload), jobId)
 }
 
@@ -241,18 +293,18 @@ export function generateClipImage(clipId: string): Job {
   const existing = activeJobFor({ clipId }, 'image')
   if (existing) return existing
   const clip = getClip(clipId)
-  const job = insertJob({ projectId: clip.projectId, clipId, kind: 'image', provider: 'higgsfield' })
-  return startHiggsfield(job, async (ctx) => {
+  const provider = getProject(clip.projectId).visualProvider
+  const job = insertJob({ projectId: clip.projectId, clipId, kind: 'image', provider })
+  return startVisual(job, async (ctx) => {
     const fresh = getClip(clipId)
     const project = getProject(fresh.projectId)
-    const model = getImageModel(project.imageModel)
+    const model = getVisualImageModel(project.visualProvider, project.imageModel)
     const chars = charactersOf(project.id).filter((c) => fresh.characterIds.includes(c.id))
-    const refs = await referenceUrls(model, chars, ctx.signal)
-    const prompt = clipPrompt(project, fresh, chars, refs.names, promptLimit(model))
+    const refs = await referenceRefs(project.visualProvider, model, chars, ctx.signal)
+    const prompt = clipPrompt(project, fresh, chars, refs.names, visualPromptLimit(model))
     return {
-      endpoint: model.id,
-      body: imageBody(model, prompt, project.aspectRatio, refs.urls),
-      payload: { target: 'clip-image', model: model.id, prompt }
+      input: { model, prompt, aspect: project.aspectRatio, refs: refs.refs },
+      payload: { target: 'clip-image', provider: project.visualProvider, model: model.id, prompt }
     }
   })
 }
@@ -261,15 +313,15 @@ export function generateCharacterSheet(characterId: string): Job {
   const existing = activeJobFor({ characterId }, 'sheet')
   if (existing) return existing
   const c = getCharacter(characterId)
-  const job = insertJob({ projectId: c.projectId, characterId, kind: 'sheet', provider: 'higgsfield' })
-  return startHiggsfield(job, async () => {
+  const provider = getProject(c.projectId).visualProvider
+  const job = insertJob({ projectId: c.projectId, characterId, kind: 'sheet', provider })
+  return startVisual(job, async () => {
     const project = getProject(c.projectId)
-    const model = getImageModel(project.imageModel)
+    const model = getVisualImageModel(project.visualProvider, project.imageModel)
     const prompt = sheetPrompt(project, getCharacter(characterId))
     return {
-      endpoint: model.id,
-      body: imageBody(model, prompt, '16:9', []),
-      payload: { target: 'sheet', model: model.id, prompt }
+      input: { model, prompt, aspect: '16:9', refs: [] },
+      payload: { target: 'sheet', provider: project.visualProvider, model: model.id, prompt }
     }
   })
 }
@@ -279,24 +331,34 @@ export function generateClipVideo(clipId: string): Job {
   if (existing) return existing
   const clip = getClip(clipId)
   if (!clip.imageAssetId) throw new Error('Buat gambar klip ini dulu sebelum membuat video AI.')
-  const job = insertJob({ projectId: clip.projectId, clipId, kind: 'video', provider: 'higgsfield' })
-  return startHiggsfield(job, async (ctx) => {
+  const provider = getProject(clip.projectId).visualProvider
+  const job = insertJob({ projectId: clip.projectId, clipId, kind: 'video', provider })
+  return startVisual(job, async (ctx) => {
     const fresh = getClip(clipId)
     const image = getAsset(fresh.imageAssetId)
     if (!image) throw new Error('Gambar klip tidak ditemukan')
     const project = getProject(fresh.projectId)
-    const model = getVideoModel(project.videoModel)
+    const model = getVisualVideoModel(project.visualProvider, project.videoModel)
+    if (!model) throw new Error('ChatGPT Web hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')
     ctx.progress(0.05, 'Menyiapkan gambar awal')
-    const url = await publicUrlFor(image, ctx.signal)
+    const chars = charactersOf(project.id).filter((c) => fresh.characterIds.includes(c.id))
+    const sheets = await referenceRefs(project.visualProvider, model, chars, ctx.signal)
+    const refs = [await imageRef(project.visualProvider, image, ctx.signal), ...sheets.refs]
     let prompt =
       fresh.videoPrompt.trim() ||
       `${splitAvoid(fresh.visualPrompt).scene.replace(/\.$/, '')}. Subtle natural motion of the characters and environment, the camera slowly pushes in. Keep the art style of the first frame.`
-    if (model.input.mode === 'reference')
+    if (model.inputMode === 'reference')
       prompt = `Open on the exact scene of the reference image and keep its art style, characters and composition. ${prompt}`
     return {
-      endpoint: model.id,
-      body: videoBody(model, prompt, url, fresh.durationMs / 1000, project.aspectRatio, project.videoResolution),
-      payload: { target: 'clip-video', model: model.id, prompt }
+      input: {
+        model,
+        prompt,
+        aspect: project.aspectRatio,
+        seconds: fresh.durationMs / 1000,
+        resolution: project.videoResolution,
+        refs
+      },
+      payload: { target: 'clip-video', provider: project.visualProvider, model: model.id, prompt }
     }
   })
 }
@@ -357,8 +419,8 @@ export function generateClipTts(clipId: string): Job {
 export function generateMissingImages(projectId: string): Job[] {
   const jobs: Job[] = []
   const project = getProject(projectId)
-  const model = getImageModel(project.imageModel)
-  if (maxRefs(model) > 0) {
+  const model = getVisualImageModel(project.visualProvider, project.imageModel)
+  if (maxVisualRefs(model) > 0) {
     const needed = new Set(clipsOf(projectId).flatMap((c) => c.characterIds))
     for (const c of charactersOf(projectId)) {
       if (needed.has(c.id) && !c.sheetAssetId) jobs.push(generateCharacterSheet(c.id))
@@ -383,13 +445,13 @@ export function generateMissingTts(projectId: string): Job[] {
     .map((c) => generateClipTts(c.id))
 }
 
-/** After a restart, keep polling Higgsfield requests that were already submitted; fail the rest. */
+/** After a restart, keep polling visual requests that were already submitted; fail the rest. */
 export function resumeJobs(): void {
   for (const row of unfinishedJobs()) {
-    const payload = JSON.parse(row.payload_json || '{}') as Partial<HfPayload>
-    if (row.provider === 'higgsfield' && row.remote_id && payload.target) {
+    const payload = JSON.parse(row.payload_json || '{}') as Partial<VisualPayload>
+    if ((row.provider === 'higgsfield' || row.provider === 'gemini') && row.remote_id && payload.target) {
       const job = getJob(row.id)!
-      runJob(job, 'higgsfield', (ctx) => finishHiggsfield(ctx, job, row.remote_id, payload as HfPayload))
+      runJob(job, 'visual', (ctx) => finishVisual(ctx, job, row.remote_id, payload as VisualPayload))
     } else {
       emit.job(updateJob(row.id, { status: 'failed', error: 'Terhenti karena aplikasi ditutup. Coba lagi.', message: null }))
     }
@@ -416,26 +478,26 @@ const failedEstimates = new Map<string, number>()
 
 /**
  * Credits for one image, or one clip video of about `seconds`. The model pickers ask for every model,
- * so answers are kept for a day and failures for ten minutes.
+ * so answers are kept for a day and failures for ten minutes. Gemini has no estimate endpoint and
+ * bills per use, so it always answers null (the picker says so instead of showing a price).
  */
 export async function estimateCredits(
+  provider: VisualProvider,
   kind: 'image' | 'video',
   modelId: string,
   aspect: AspectRatio,
   seconds = 5,
   resolution?: string | null
 ): Promise<CreditEstimate | null> {
-  const model = kind === 'image' ? getImageModel(modelId) : getVideoModel(modelId)
-  const body =
-    kind === 'image'
-      ? imageBody(model, 'estimate', aspect, [])
-      : videoBody(model, 'estimate', 'https://example.com/frame.png', seconds, aspect, resolution)
-  const key = `estimate:${model.id}:${JSON.stringify(body)}`
+  if (provider === 'gemini' || provider === 'chatgpt-web') return null
+  const model = kind === 'image' ? getVisualImageModel(provider, modelId) : getVisualVideoModel(provider, modelId)
+  if (!model) return null
+  const key = `estimate:${provider}:${model.id}:${aspect}:${seconds}:${resolution ?? ''}`
   const hit = readCache<CreditEstimate>(key)
   if (hit && Date.now() - hit.updatedAt < DAY) return hit.value
   const failedAt = failedEstimates.get(key)
   if (failedAt && Date.now() - failedAt < 10 * 60 * 1000) return null
-  const value = await hf.estimate(model.id, body)
+  const value = await adapter(provider).estimate(kind, model.id, aspect, seconds, resolution)
   if (value) writeCache(key, value)
   else failedEstimates.set(key, Date.now())
   return value

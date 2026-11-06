@@ -20,6 +20,7 @@ import type {
   ProjectSnapshot,
   ProjectSummary,
   TtsProvider,
+  VisualProvider,
   VoiceOption
 } from './types'
 
@@ -55,8 +56,15 @@ export interface StudioApi {
     /** Re-times caption words of voiced scenes against the audio with the local Whisper model. */
     syncCaptions(projectId: string, mode?: 'stale' | 'all'): Promise<Job>
     cancel(jobId: string): Promise<void>
-    /** Credits for one image, or one video of about `seconds`, with this model. Null without a working key. */
-    estimate(kind: 'image' | 'video', modelId: string, aspect: AspectRatio, seconds?: number, resolution?: string | null): Promise<CreditEstimate | null>
+    /** Credits for one image, or one video of about `seconds`, with this model. Null without a working key, and always null for Gemini (per-use billing, no estimate endpoint). */
+    estimate(
+      provider: VisualProvider,
+      kind: 'image' | 'video',
+      modelId: string,
+      aspect: AspectRatio,
+      seconds?: number,
+      resolution?: string | null
+    ): Promise<CreditEstimate | null>
   }
   clips: {
     /** Splits a clip at `atMs` into two clips (picture, voice and narration divided at the nearest pause). */
@@ -84,6 +92,13 @@ export interface StudioApi {
     revealKey(provider: ApiProvider): Promise<string | null>
     testKey(provider: ApiProvider): Promise<KeyTestResult>
     voices(provider: TtsProvider): Promise<VoiceOption[]>
+  }
+  /** ChatGPT Web (browser provider): no API key, the login lives in the browser profile. */
+  chatgptWeb: {
+    /** Whether the ChatGPT browser session is logged in right now. */
+    status(): Promise<{ loggedIn: boolean }>
+    /** Opens the browser for the user to log in, and waits until the composer appears. */
+    login(): Promise<{ loggedIn: boolean }>
   }
   models: {
     /** Live model list from the provider. Served from cache unless `refresh` is set or the cache is stale. */

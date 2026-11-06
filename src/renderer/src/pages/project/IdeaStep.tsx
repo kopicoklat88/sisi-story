@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bot, Play, Sparkles, Square } from 'lucide-react'
-import { getImageModel } from '@shared/higgsfield'
+import { getVisualImageModel } from '@shared/visual'
 import { DURATIONS, LANGUAGES, clipCountFor, llmName } from '@shared/models'
 import { getStyle } from '@shared/styles'
 import type { KeyStatus, LlmProvider, TtsProvider, VoiceOption } from '@shared/types'
@@ -132,7 +132,7 @@ export function IdeaStep() {
 
   const clipCount = clipCountFor(project.durationSec)
   const perClip = Math.round(project.durationSec / clipCount)
-  const model = getImageModel(project.imageModel)
+  const model = getVisualImageModel(project.visualProvider, project.imageModel)
 
   const compose = async (): Promise<void> => {
     if (!project.synopsis.trim()) {

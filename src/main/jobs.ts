@@ -1,9 +1,9 @@
 import type { Job } from '@shared/types'
 import { emit } from './events'
 import { getJobRaw, updateJob } from './repo'
-import { cancelRequest } from './services/higgsfield'
+import { adapter } from './services/visual'
 
-export type QueueName = 'higgsfield' | 'tts' | 'whisper' | 'export'
+export type QueueName = 'visual' | 'tts' | 'whisper' | 'export'
 
 export interface TaskCtx {
   jobId: string
@@ -15,10 +15,10 @@ export interface TaskCtx {
 /** A task returns the id of the asset it produced, or a message to keep on the finished job (e.g. an output path). */
 export type Task = (ctx: TaskCtx) => Promise<string | void | { message: string }>
 
-// Whisper uses most CPU cores by itself, so it runs one file at a time.
-const LIMITS: Record<QueueName, number> = { higgsfield: 3, tts: 2, whisper: 1, export: 1 }
-const running: Record<QueueName, number> = { higgsfield: 0, tts: 0, whisper: 0, export: 0 }
-const waiting: Record<QueueName, (() => void)[]> = { higgsfield: [], tts: [], whisper: [], export: [] }
+// Visual generation (either provider) shares one queue; Whisper uses most CPU cores by itself, so it runs one file at a time.
+const LIMITS: Record<QueueName, number> = { visual: 3, tts: 2, whisper: 1, export: 1 }
+const running: Record<QueueName, number> = { visual: 0, tts: 0, whisper: 0, export: 0 }
+const waiting: Record<QueueName, (() => void)[]> = { visual: [], tts: [], whisper: [], export: [] }
 const controllers = new Map<string, AbortController>()
 
 function acquire(q: QueueName): Promise<void> {
@@ -93,7 +93,11 @@ export function runJob(job: Job, queue: QueueName, task: Task): Job {
 export async function cancelJob(id: string): Promise<void> {
   const raw = getJobRaw(id)
   if (!raw) return
-  if (raw.remote_id && raw.provider === 'higgsfield') await cancelRequest(raw.remote_id)
+  if (raw.remote_id) {
+    // Gemini has no cancel endpoint; its adapter's cancel is a no-op and the poll just stops.
+    const provider = raw.provider === 'gemini' ? 'gemini' : 'higgsfield'
+    await adapter(provider).cancel(raw.remote_id).catch(() => {})
+  }
   const ctrl = controllers.get(id)
   if (ctrl) ctrl.abort()
   else if (raw.status === 'queued' || raw.status === 'running') emit.job(updateJob(id, { status: 'canceled', message: null }))

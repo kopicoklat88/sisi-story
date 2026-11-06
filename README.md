@@ -6,7 +6,7 @@
 
 **Ubah ide cerita jadi video YouTube, langsung dari komputermu.**
 
-AI menyusun naskah dan visual, Higgsfield membuat gambar dan video, narator AI mengisi suara,<br>
+AI menyusun naskah dan visual, Higgsfield, Gemini, atau ChatGPT Web membuat gambar dan video, narator AI mengisi suara,<br>
 lalu kamu merapikannya di editor timeline dan mengekspor MP4.
 
 [![Versi](https://img.shields.io/badge/versi-1.0.0-c93a1b?style=flat-square)](CHANGELOG.md)
@@ -44,7 +44,7 @@ Semua proyek, gambar, video, dan suara disimpan di komputermu. Kamu memakai kunc
   - bahasa dan format (16:9 atau 9:16);
   - gaya visual (2D, 3D, atau realistis);
   - suara narator.
-- Pilih model gambar dan video Higgsfield per proyek, lengkap dengan perkiraan kredit.
+- Pilih model gambar dan video per proyek (Higgsfield, Gemini, atau ChatGPT Web), lengkap dengan perkiraan kredit.
 
 **2. Naskah**
 - AI menulis alur dan narasi (VO) setiap adegan. Adegan bisa diubah, ditambah, dihapus, dan diurutkan ulang.
@@ -56,7 +56,7 @@ Semua proyek, gambar, video, dan suara disimpan di komputermu. Kamu memakai kunc
   - pemeran beserta lembar karakter;
   - gerak kamera dan transisi;
   - arahan gerak untuk video AI.
-- Tersedia 14 model gambar dan 34 model video dari Higgsfield.
+- Tersedia 14 model gambar dan 34 model video dari Higgsfield, plus Nano Banana dan Omni Flash dari Gemini, plus GPT Image lewat ChatGPT Web (kuota free akun ChatGPT, gambar saja).
 - Narasi direkam dalam satu rekaman utuh (Gemini TTS atau ElevenLabs), lalu dipotong otomatis per adegan. Suara dan intonasinya jadi konsisten.
 
 **4. Editor**
@@ -144,9 +144,9 @@ Setiap bagian (penyusun cerita, suara narator) punya satu dropdown penyedia. Han
 
 | Layanan | Dipakai untuk | Wajib |
 |---|---|---|
-| [Higgsfield](https://higgsfield.ai) (satu kunci dari tombol **Copy API key**, format `KEY_ID:KEY_SECRET`) | Gambar, lembar karakter, video AI | Ya |
+| [Higgsfield](https://higgsfield.ai) (satu kunci dari tombol **Copy API key**, format `KEY_ID:KEY_SECRET`) | Gambar, lembar karakter, video AI | Ya, kecuali memakai Gemini sebagai penyedia visual |
 | Penyusun cerita, pilih satu: Google Gemini, OpenRouter, Groq, atau endpoint custom yang kompatibel dengan OpenAI | Naskah, rencana visual, pemeran | Ya, salah satu |
-| Google Gemini | Suara narator Gemini TTS | Kalau memakai Gemini TTS |
+| Google Gemini | Suara narator Gemini TTS; gambar (Nano Banana) dan video (Omni Flash) kalau dipilih sebagai penyedia visual | Kalau memakai Gemini TTS atau visual Gemini |
 | ElevenLabs | Suara narator dengan waktu per kata yang presisi | Opsional |
 
 - **Daftar model penyusun cerita** diambil langsung dari penyedia setelah kuncinya disimpan, lalu dipilih lewat dropdown yang bisa dicari.

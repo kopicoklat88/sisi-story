@@ -1,15 +1,17 @@
 import type { PointerEvent } from 'react'
-import { Blend, ChevronsLeft, Maximize2, Scissors } from 'lucide-react'
+import { Blend, ChevronsLeft, Circle, Maximize2, Scissors, Wind } from 'lucide-react'
 import { TRANSITIONS, transitionSecOf } from '@shared/motion'
 import type { Clip, TransitionId } from '@shared/types'
 import { cx } from '../../../components/ui'
 
-export const TRANSITION_ICONS: Record<TransitionId, typeof Blend> = { fade: Blend, slideleft: ChevronsLeft, zoomin: Maximize2, cut: Scissors }
+export const TRANSITION_ICONS: Record<TransitionId, typeof Blend> = { fade: Blend, slideleft: ChevronsLeft, zoomin: Maximize2, whip: Wind, iris: Circle, cut: Scissors }
 
 export const TRANSITION_NOTES: Record<TransitionId, string> = {
   fade: 'Tenang, cocok untuk pergantian waktu',
   slideleft: 'Pindah tempat atau sudut pandang',
   zoomin: 'Dramatis, untuk momen penting',
+  whip: 'Cepat dan tajam, cocok untuk adegan aksi',
+  iris: 'Klasik, seperti membuka tirai dari tengah',
   cut: 'Langsung, cocok untuk adegan cepat'
 }
 

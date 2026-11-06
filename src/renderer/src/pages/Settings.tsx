@@ -16,10 +16,11 @@ import {
   SlidersHorizontal,
   Trash2
 } from 'lucide-react'
-import { HF_IMAGE_MODELS, HF_VIDEO_MODELS } from '@shared/higgsfield'
+import { visualImageModels, visualVideoModels } from '@shared/visual'
 import { LANGUAGES, LLM_PROVIDERS } from '@shared/models'
 import type { ApiProvider, AppSettings, KeyStatus, KeyTestResult, LlmProvider, TtsProvider } from '@shared/types'
 import { Logo } from '../components/Logo'
+import { ModelLogo } from '../components/ModelLogo'
 import { ModelPicker } from '../components/ModelPicker'
 import { ProviderLogo, type ProviderLogoId } from '../components/ProviderLogo'
 import { Select } from '../components/Select'
@@ -401,7 +402,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
           name={spec.name}
           status={status}
           help={provider === 'custom' ? 'Contoh: http://localhost:11434/v1 untuk Ollama, http://localhost:1234/v1 untuk LM Studio, https://api.x.ai/v1 untuk Grok.' : 'Setelah kunci disimpan, daftar model diambil langsung dari penyedianya.'}
-          hint={provider === 'gemini' && settings.defaultTtsProvider === 'gemini' ? 'Kunci ini dipakai bersama untuk suara narator Gemini TTS.' : undefined}
+          hint={provider === 'gemini' && settings.defaultTtsProvider === 'gemini' ? 'Kunci ini dipakai bersama untuk suara narator Gemini TTS dan visual (Nano Banana + Omni Flash).' : undefined}
           link={spec.link}
           linkLabel={spec.linkLabel}
           customUrl={settings.customBaseUrl}
@@ -481,7 +482,7 @@ function TtsSection({ settings, statusOf, onChanged, onSettings }: { settings: A
           name={provider === 'gemini' ? 'Google Gemini' : 'ElevenLabs'}
           status={status}
           help={provider === 'gemini' ? 'Kunci Gemini dari Google AI Studio.' : 'Kunci API dari akun ElevenLabs.'}
-          hint={provider === 'gemini' && settings.llmProvider === 'gemini' ? 'Kunci ini dipakai bersama dengan penyusun cerita Gemini.' : undefined}
+          hint={provider === 'gemini' && settings.llmProvider === 'gemini' ? 'Kunci ini dipakai bersama dengan penyusun cerita Gemini dan visual (Nano Banana + Omni Flash).' : undefined}
           link={provider === 'gemini' ? 'https://aistudio.google.com/apikey' : 'https://elevenlabs.io/app/settings/api-keys'}
           linkLabel={provider === 'gemini' ? 'Buat kunci di Google AI Studio' : 'Buat kunci di ElevenLabs'}
           onChanged={onChanged}
@@ -539,12 +540,80 @@ function HiggsfieldSection({ status, onChanged }: { status?: KeyStatus; onChange
         <p className="flex items-start gap-2.5 border-t border-dashed border-line pt-4 text-[13px] leading-relaxed text-ink-2">
           <Film className="mt-0.5 size-4 shrink-0" />
           <span>
-            Semua {HF_IMAGE_MODELS.length} model gambar dan {HF_VIDEO_MODELS.length} model video Higgsfield bisa dipakai. Modelnya dipilih per proyek
-            di langkah <strong className="text-ink">Ide cerita</strong>, bagian Model AI.
+            Semua {visualImageModels('higgsfield').length} model gambar dan {visualVideoModels('higgsfield').length} model video Higgsfield bisa dipakai.
+            Alternatifnya, pilih <strong className="text-ink">Gemini</strong> sebagai penyedia visual ({visualImageModels('gemini').length} model gambar Nano
+            Banana dan {visualVideoModels('gemini').length} model video Omni Flash) — pakai kunci Gemini yang sama — atau{' '}
+            <strong className="text-ink">ChatGPT Web</strong> untuk gambar gratis lewat kuota free akun ChatGPT (tanpa kunci API, tanpa video).
+            Modelnya dipilih per proyek di langkah <strong className="text-ink">Ide cerita</strong>, bagian Model AI.
           </span>
         </p>
       </Card>
     </>
+  )
+}
+
+/**
+ * ChatGPT Web: no API key — the app drives chatgpt.com in a browser (Google Chrome must be
+ * installed) and spends the account's free image quota. The login lives in the browser profile
+ * and is checked live; the button below opens the browser for the user to log in.
+ */
+function ChatGptWebSection() {
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
+
+  useEffect(() => {
+    let live = true
+    void window.api.chatgptWeb
+      .status()
+      .then((s) => {
+        if (live) setLoggedIn(s.loggedIn)
+      })
+      .catch(() => {
+        if (live) setLoggedIn(false)
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  const login = async (): Promise<void> => {
+    setBusy(true)
+    setNote('Browser ChatGPT terbuka — login di sana, lalu kembali ke sini.')
+    try {
+      const s = await window.api.chatgptWeb.login()
+      setLoggedIn(s.loggedIn)
+      setNote(s.loggedIn ? 'Login berhasil. Gambar klip bisa dibuat lewat ChatGPT Web.' : 'Login belum selesai (waktu habis). Coba lagi.')
+    } catch (e) {
+      setLoggedIn(false)
+      setNote(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center gap-3">
+        <ModelLogo family="chatgpt" size={40} />
+        <div className="flex flex-1 flex-col">
+          <span className="text-base font-bold">ChatGPT Web</span>
+          <span className="text-[13px] text-ink-2">GPT Image lewat browser chatgpt.com · kuota free akun ChatGPT, tanpa kunci API</span>
+        </div>
+        {loggedIn === null ? <Badge tone="draft">Mengecek…</Badge> : loggedIn ? <Badge tone="ok">Login aktif</Badge> : <Badge tone="draft">Belum login</Badge>}
+      </div>
+      <p className="text-[13px] leading-relaxed text-ink-2">
+        Gambar dibuat satu per satu di browser (butuh Google Chrome terpasang). Lembar karakter ikut dilampirkan supaya tokoh tetap sama.
+        Hanya gambar — video AI tidak tersedia di penyedia ini, dan kalau ChatGPT menampilkan pemeriksaan bot atau tampilannya berubah,
+        pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang.
+      </p>
+      <div className="flex items-center gap-3">
+        <Button onClick={() => void login()} disabled={busy}>
+          {busy ? 'Menunggu login di browser…' : loggedIn ? 'Buka browser & login ulang' : 'Buka browser & login'}
+        </Button>
+        {note && <span className="text-[13px] text-ink-2">{note}</span>}
+      </div>
+    </Card>
   )
 }
 
@@ -618,6 +687,7 @@ export function Settings() {
                 <LlmSection settings={settings} statusOf={statusOf} onChanged={reload} onSettings={setSettings} />
                 <TtsSection settings={settings} statusOf={statusOf} onChanged={reload} onSettings={setSettings} />
                 <HiggsfieldSection status={statusOf('higgsfield')} onChanged={reload} />
+                <ChatGptWebSection />
                 <WhisperSection settings={settings} onSettings={setSettings} />
               </>
             )}

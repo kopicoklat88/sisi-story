@@ -19,6 +19,12 @@ export const CAMERA_PRESETS: { id: CameraPresetId; label: string }[] = [
   { id: 'panright', label: 'Geser kanan' },
   { id: 'kenburns', label: 'Ken Burns' },
   { id: 'shake', label: 'Goyang halus' },
+  { id: 'pushthrough', label: 'Tembus maju' },
+  { id: 'whipleft', label: 'Cambuk kiri' },
+  { id: 'whipright', label: 'Cambuk kanan' },
+  { id: 'crane', label: 'Naik (crane)' },
+  { id: 'arc', label: 'Busur' },
+  { id: 'breath', label: 'Napas kamera' },
   { id: 'static', label: 'Diam' }
 ]
 
@@ -32,6 +38,8 @@ export const TRANSITIONS: { id: TransitionId; label: string; ffmpeg: string | nu
   { id: 'fade', label: 'Pudar', ffmpeg: 'fade' },
   { id: 'slideleft', label: 'Geser ke kiri', ffmpeg: 'slideleft' },
   { id: 'zoomin', label: 'Zoom tembus', ffmpeg: 'zoomin' },
+  { id: 'whip', label: 'Cambuk', ffmpeg: 'smoothleft' },
+  { id: 'iris', label: 'Iris membuka', ffmpeg: 'circleopen' },
   { id: 'cut', label: 'Potong langsung', ffmpeg: null }
 ]
 
@@ -63,6 +71,8 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
 export function cameraAt(preset: CameraPresetId, strength: MotionStrength, p: number, t: number): CameraFrame {
   const s = strengthAmount(strength)
   const e = smooth(p)
+  // Whip moves finish in the first 30% of the clip, then settle.
+  const w = smooth(Math.min(p / 0.3, 1))
   switch (preset) {
     case 'zoomin':
       return { zoom: lerp(1, 1 + s, e), x: 0, y: 0 }
@@ -79,6 +89,24 @@ export function cameraAt(preset: CameraPresetId, strength: MotionStrength, p: nu
         zoom: 1 + Math.max(0.04, s * 0.5),
         x: 0.35 * Math.sin(2 * Math.PI * 1.3 * t),
         y: 0.3 * Math.sin(2 * Math.PI * 1.7 * t + 1)
+      }
+    case 'pushthrough':
+      // Accelerating zoom: slow start, then it dives through the scene.
+      return { zoom: lerp(1, 1 + s * 2, e * e), x: 0, y: 0 }
+    case 'whipleft':
+      return { zoom: 1 + s, x: lerp(0.9, -0.9, w), y: 0 }
+    case 'whipright':
+      return { zoom: 1 + s, x: lerp(-0.9, 0.9, w), y: 0 }
+    case 'crane':
+      return { zoom: 1 + s * 0.5, x: 0, y: lerp(0.9, -0.9, e) }
+    case 'arc':
+      return { zoom: 1 + s, x: lerp(-0.9, 0.9, e), y: -0.5 * Math.sin(Math.PI * e) }
+    case 'breath':
+      // Slow 4-second breathing: a barely-there zoom pulse, so a still scene stays alive.
+      return {
+        zoom: 1 + s * 0.5 + s * 0.5 * Math.sin(2 * Math.PI * 0.25 * t),
+        x: 0.1 * Math.sin(2 * Math.PI * 0.25 * t),
+        y: 0
       }
     default:
       return { zoom: 1, x: 0, y: 0 }
@@ -107,6 +135,10 @@ export function cameraPerspective(preset: CameraPresetId, strength: MotionStreng
   const e = `(${p}*${p}*(3-2*${p}))`
   const t = `(${f}/${fps})`
   const lin = (a: number, b: number): string => `(${a}+(${b - a})*${e})`
+  // Whip ease: the same smoothstep, but compressed into the first 30% of the clip.
+  const wq = `min(${p}/0.3,1)`
+  const whip = `(${wq}*${wq}*(3-2*${wq}))`
+  const linW = (a: number, b: number): string => `(${a}+(${b - a})*${whip})`
   let z = '1'
   let x = '0'
   let y = '0'
@@ -134,6 +166,30 @@ export function cameraPerspective(preset: CameraPresetId, strength: MotionStreng
       z = `${1 + Math.max(0.04, s * 0.5)}`
       x = `(0.35*sin(2*PI*1.3*${t}))`
       y = `(0.3*sin(2*PI*1.7*${t}+1))`
+      break
+    case 'pushthrough':
+      z = `(1+${2 * s}*(${e}*${e}))`
+      break
+    case 'whipleft':
+      z = `${1 + s}`
+      x = linW(0.9, -0.9)
+      break
+    case 'whipright':
+      z = `${1 + s}`
+      x = linW(-0.9, 0.9)
+      break
+    case 'crane':
+      z = `${1 + s * 0.5}`
+      y = lin(0.9, -0.9)
+      break
+    case 'arc':
+      z = `${1 + s}`
+      x = lin(-0.9, 0.9)
+      y = `(-0.5*sin(PI*${e}))`
+      break
+    case 'breath':
+      z = `(1+${s}*0.5+${s}*0.5*sin(2*PI*0.25*${t}))`
+      x = `(0.1*sin(2*PI*0.25*${t}))`
       break
   }
   // The visible window: 1/zoom of the frame, placed in the free space by x and y (-1 to 1), as in cameraCss.

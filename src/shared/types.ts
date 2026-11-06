@@ -1,14 +1,17 @@
 export type ProjectStatus = 'draft' | 'script' | 'storyboard' | 'editing' | 'exported'
 export type AspectRatio = '16:9' | '9:16'
 export type TtsProvider = 'gemini' | 'elevenlabs'
+
+/** Who draws the clip images and animates them. Higgsfield is the original provider; Gemini is the second. */
+export type VisualProvider = 'higgsfield' | 'gemini' | 'chatgpt-web'
 export type LlmProvider = 'gemini' | 'openrouter' | 'groq' | 'custom'
 export type ApiProvider = 'higgsfield' | 'gemini' | 'elevenlabs' | 'openrouter' | 'groq' | 'custom'
 /** Where a live model list comes from: an LLM provider, or a TTS catalog. */
 export type ModelSource = LlmProvider | 'gemini-tts' | 'elevenlabs'
 export type MotionType = 'camera' | 'video'
-export type CameraPresetId = 'zoomin' | 'zoomout' | 'panleft' | 'panright' | 'kenburns' | 'shake' | 'static'
+export type CameraPresetId = 'zoomin' | 'zoomout' | 'panleft' | 'panright' | 'kenburns' | 'shake' | 'pushthrough' | 'whipleft' | 'whipright' | 'crane' | 'arc' | 'breath' | 'static'
 export type MotionStrength = 'halus' | 'sedang' | 'kuat'
-export type TransitionId = 'cut' | 'fade' | 'slideleft' | 'zoomin'
+export type TransitionId = 'cut' | 'fade' | 'slideleft' | 'zoomin' | 'whip' | 'iris'
 export type CaptionStyleId = 'karaoke' | 'tebal' | 'minimal' | 'subtitle' | 'none'
 export type CaptionPosition = 'atas' | 'tengah' | 'bawah'
 export type CaptionSize = 'kecil' | 'sedang' | 'besar'
@@ -102,7 +105,9 @@ export interface Project {
   styleId: string
   ttsProvider: TtsProvider
   ttsVoice: string
-  /** Higgsfield endpoint ids; null falls back to the app default. */
+  /** Which provider draws this project's images and videos (Higgsfield by default). */
+  visualProvider: VisualProvider
+  /** Model ids for the project's visual provider; null falls back to the app default. */
   imageModel: string | null
   videoModel: string | null
   /** One of the video model's resolutions, e.g. "720p"; null or unsupported uses the default (1080p when offered). */
@@ -287,7 +292,11 @@ export interface AppSettings {
   customBaseUrl: string
   geminiTtsModel: string
   elevenModel: string
-  /** Higgsfield models for new projects: the last ones picked in the Idea step. */
+  /** Which provider draws images and videos for new projects. */
+  visualProvider: VisualProvider
+  /** Chosen image/video model per visual provider, so switching providers keeps each choice. */
+  visualModels: Record<VisualProvider, { image: string; video: string }>
+  /** Higgsfield models for new projects: the last ones picked in the Idea step (kept as the Higgsfield pair of visualModels). */
   imageModel: string
   videoModel: string
   /** Time captions against the real voice with Whisper after narration is made (when the model is present). */

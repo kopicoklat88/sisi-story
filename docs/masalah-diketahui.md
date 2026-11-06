@@ -23,3 +23,4 @@
 - Pilihan TTS lokal (tanpa API) untuk pengguna tanpa kunci.
 - Dukungan macOS penuh (Whisper, installer).
 - Unit test untuk modul `src/shared/` (caption, timeline, motion) dengan Vitest.
+- Tipografi kinetik caption: kata-kata bergerak mengikuti gerak kamera (butuh `captions.ts` + Player + render ASS ekspor sekaligus).

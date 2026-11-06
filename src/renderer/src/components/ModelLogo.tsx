@@ -5,11 +5,12 @@ import { cx } from './cx'
  * Families without their own mark use their maker's: Alibaba for Wan, HappyHorse and Z-Image, and
  * Higgsfield for its in-house Soul and Cinema Studio.
  */
-const FILES = import.meta.glob(['../assets/models/*.svg', '../assets/providers/higgsfield.png'], { eager: true, import: 'default' }) as Record<string, string>
+const FILES = import.meta.glob(['../assets/models/*.svg', '../assets/providers/higgsfield.png', '../assets/providers/gemini.svg'], { eager: true, import: 'default' }) as Record<string, string>
 const file = (path: string): string | undefined => FILES[`../assets/${path}`]
 
 const FAMILY_LOGO: Record<string, { src: string; bg: string; inset: number }> = {
   'GPT Image': { src: 'models/openai.svg', bg: '#FFFFFF', inset: 0.2 },
+  chatgpt: { src: 'models/openai.svg', bg: '#FFFFFF', inset: 0.2 },
   Soul: { src: 'providers/higgsfield.png', bg: '#D1FE17', inset: 0 },
   'Cinema Studio': { src: 'providers/higgsfield.png', bg: '#D1FE17', inset: 0 },
   Grok: { src: 'models/grok.svg', bg: '#FFFFFF', inset: 0.2 },
@@ -24,7 +25,8 @@ const FAMILY_LOGO: Record<string, { src: string; bg: string; inset: number }> = 
   Hailuo: { src: 'models/hailuo-color.svg', bg: '#FFFFFF', inset: 0.18 },
   MiniMax: { src: 'models/minimax-color.svg', bg: '#FFFFFF', inset: 0.18 },
   PixVerse: { src: 'models/pixverse-color.svg', bg: '#FFFFFF', inset: 0.18 },
-  LTX: { src: 'models/lightricks.svg', bg: '#FFFFFF', inset: 0.2 }
+  LTX: { src: 'models/lightricks.svg', bg: '#FFFFFF', inset: 0.2 },
+  gemini: { src: 'providers/gemini.svg', bg: '#FFFFFF', inset: 0.18 }
 }
 
 export function ModelLogo({ family, size = 30, className }: { family?: string; size?: number; className?: string }) {

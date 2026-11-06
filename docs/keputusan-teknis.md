@@ -85,3 +85,27 @@ startup (`warmUpEncryption`) mencegah kunci API tidak terbaca setelah aplikasi d
 ### YouTube embed diberi Referer berisi ID aplikasi
 Halaman dari `file://` tidak mengirim Referer, dan YouTube menolak embed tanpa identitas (Error 153). Header
 ditambahkan hanya untuk `https://www.youtube.com/embed/*`.
+
+### Visual Gemini lewat Interactions API (REST), bukan SDK
+Imagen dimatikan 2026-08-17 dan Veo 3.1 preview dimatikan 2026-10-22; model gambar saat ini keluarga Nano Banana
+dan model video saat ini Omni Flash 1.2 (3–15 detik, audio asli). Keduanya hanya tersedia lewat Interactions API,
+jadi adapter Gemini memanggil REST mentah (`POST /v1beta/interactions` + polling `GET /interactions/{id}`) dan
+mem-parse `steps[]` sendiri — `output_image`/`output_video` hanya ada di SDK, bukan di REST. Jangan ganti ke SDK
+hanya demi kenyamanan: REST membuat dependensi tetap nol dan responsnya transparan.
+
+### Tipografi kinetik caption ditunda
+Caption kinetik (kata-kata yang bergerak mengikuti gerak kamera) butuh perubahan di `captions.ts`, Player, dan
+render ASS ekspor sekaligus — terlalu besar untuk satu perubahan. Gerak kamera baru (Tembus, Cambuk, Crane, Busur,
+Napas) sudah masuk dan berlaku di pratinjau dan ekspor; tipografi kinetik tetap ide lanjutan di
+`docs/masalah-diketahui.md`.
+
+### ChatGPT Web disetir lewat browser, bukan API
+ChatGPT web tidak punya API gambar publik, jadi satu-satunya "pointing" ke kuota free-nya adalah otomasi browser.
+Driver memakai Playwright (`playwright-core`, tanpa unduh browser) dengan `channel: 'chrome'` — Chrome pengguna
+yang terpasang, bukan Chromium bawaan Playwright. Browser tampil (headed) supaya login dan pemeriksaan bot bisa
+diselesaikan pengguna sendiri; sesi tersimpan di folder profil `chatgpt-web`. Selector dibuat berlapis
+(`#prompt-textarea` lalu `contenteditable` terakhir; tombol kirim `data-testid` lalu `aria-label`) karena UI
+ChatGPT sering berubah. Gambar ditunggu lewat `img[src*="oaiusercontent"]` yang baru muncul. Satu gambar dalam
+satu waktu; pembatalan hanya membuang hasil di sisi kita. Penyedia ini gambar saja — `getVisualVideoModel`
+mengembalikan null untuknya dan semua pemakai (ModelSection, StoryboardStep, `generateClipVideo`) menanganinya
+sebagai "tidak ada video".

@@ -18,7 +18,7 @@ import {
   Trash2,
   Volume2
 } from 'lucide-react'
-import { effectiveResolution, fitDuration, getImageModel, getVideoModel } from '@shared/higgsfield'
+import { effectiveVisualResolution, fitVisualDuration, getVisualImageModel, getVisualVideoModel } from '@shared/visual'
 import { CAMERA_PRESETS, MOTION_STRENGTHS, cameraAt, cameraCss } from '@shared/motion'
 import { needsVisual } from '@shared/script'
 import { geminiVoiceName, geminiVoiceTone } from '@shared/models'
@@ -397,9 +397,12 @@ function ClipPanel({ clip, index, total }: { clip: Clip; index: number; total: n
                 <div className="flex items-center gap-1.5 text-xs text-ink-2">
                   <Film className="size-3.5 shrink-0" />
                   <span className="truncate">
-                    {getVideoModel(project.videoModel).name} · video {fitDuration(getVideoModel(project.videoModel), clip.durationMs / 1000)} detik
-                    {effectiveResolution(getVideoModel(project.videoModel), project.videoResolution) &&
-                      ` · ${effectiveResolution(getVideoModel(project.videoModel), project.videoResolution)}`}
+                    {(() => {
+                      const vm = getVisualVideoModel(project.visualProvider, project.videoModel)
+                      if (!vm) return 'Video AI tidak tersedia (ChatGPT Web hanya gambar)'
+                      const res = effectiveVisualResolution(vm, project.videoResolution)
+                      return `${vm.name} · video ${fitVisualDuration(vm, clip.durationMs / 1000)} detik${res ? ` · ${res}` : ''}`
+                    })()}
                   </span>
                   <button
                     type="button"
@@ -466,9 +469,9 @@ export function StoryboardStep() {
   useEffect(() => {
     if (project)
       void window.api.generate
-        .estimate('image', getImageModel(project.imageModel).id, project.aspectRatio)
+        .estimate(project.visualProvider, 'image', getVisualImageModel(project.visualProvider, project.imageModel).id, project.aspectRatio)
         .then((e) => setCredits(e?.credits ?? null))
-  }, [project?.id, project?.imageModel, project?.aspectRatio])
+  }, [project?.id, project?.visualProvider, project?.imageModel, project?.aspectRatio])
 
   const stats = useMemo(() => {
     const imgs = clips.filter((c) => c.imageAssetId).length
@@ -482,16 +485,18 @@ export function StoryboardStep() {
   // Video length follows each clip's voice, so the cost is estimated per video length and summed.
   const videoLengths = useMemo(() => {
     if (!project) return ''
-    const model = getVideoModel(project.videoModel)
-    return stats.needVideo.map((c) => fitDuration(model, c.durationMs / 1000) ?? 5).join(',')
-  }, [stats.needVideo, project?.videoModel])
+    const model = getVisualVideoModel(project.visualProvider, project.videoModel)
+    if (!model) return ''
+    return stats.needVideo.map((c) => fitVisualDuration(model, c.durationMs / 1000) ?? 5).join(',')
+  }, [stats.needVideo, project?.visualProvider, project?.videoModel])
   useEffect(() => {
     if (!project || !videoLengths) return setVideoCredits(null)
     const lengths = videoLengths.split(',').map(Number)
     const unique = [...new Set(lengths)]
-    const model = getVideoModel(project.videoModel).id
+    const model = getVisualVideoModel(project.visualProvider, project.videoModel)
+    if (!model) return setVideoCredits(null)
     let live = true
-    void Promise.all(unique.map((s) => window.api.generate.estimate('video', model, project.aspectRatio, s, project.videoResolution))).then((list) => {
+    void Promise.all(unique.map((s) => window.api.generate.estimate(project.visualProvider, 'video', model.id, project.aspectRatio, s, project.videoResolution))).then((list) => {
       if (!live) return
       if (list.some((e) => e?.credits == null)) return setVideoCredits(null)
       const bySec = new Map(unique.map((s, i) => [s, list[i]!.credits]))
@@ -503,6 +508,8 @@ export function StoryboardStep() {
   }, [videoLengths, project?.aspectRatio, project?.videoResolution])
 
   if (!project) return null
+  // Null for providers without video models (ChatGPT Web is image-only).
+  const videoModel = getVisualVideoModel(project.visualProvider, project.videoModel)
   const selIndex = Math.max(0, clips.findIndex((c) => c.id === selectedClipId))
   const sel = clips[selIndex]
 
@@ -518,6 +525,7 @@ export function StoryboardStep() {
   const narration = useNarration()
   // Videos are made last: every clip has its picture, and the voice is final so each video matches its clip length.
   const readyForVideo =
+    videoModel != null &&
     clips.length > 0 &&
     clips.every((c) => c.imageAssetId) &&
     narration.voiced > 0 &&
@@ -528,7 +536,7 @@ export function StoryboardStep() {
     const ok = await confirmDialog({
       title: `Jadikan ${n} klip video AI?`,
       body:
-        `Setiap gambar klip dianimasikan dengan ${getVideoModel(project!.videoModel).name}, panjangnya mengikuti suara narasi klip itu.` +
+        `Setiap gambar klip dianimasikan dengan ${videoModel!.name}, panjangnya mengikuti suara narasi klip itu.` +
         (videoCredits != null ? ` Perkiraan biaya ${Math.round(videoCredits * 10) / 10} kredit Higgsfield.` : '') +
         ' Klip yang sudah punya video tidak dibuat ulang.',
       confirm: `Buat ${n} video`

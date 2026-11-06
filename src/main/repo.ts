@@ -44,6 +44,7 @@ const toProject = (r: Row): Project => ({
   styleId: r.style_id,
   ttsProvider: r.tts_provider,
   ttsVoice: r.tts_voice,
+  visualProvider: r.visual_provider === 'gemini' ? 'gemini' : 'higgsfield',
   imageModel: r.image_model,
   videoModel: r.video_model,
   videoResolution: r.video_resolution ?? null,
@@ -162,8 +163,8 @@ export function createProject(input: NewProjectInput): Project {
   getDb()
     .prepare(
       `INSERT INTO projects (id, title, synopsis, duration_sec, language, aspect_ratio, style_id, tts_provider, tts_voice,
-        image_model, video_model, status, step, editor_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?, ?)`
+        visual_provider, image_model, video_model, status, step, editor_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', 1, ?, ?, ?)`
     )
     .run(
       id,
@@ -175,8 +176,9 @@ export function createProject(input: NewProjectInput): Project {
       input.styleId ?? 'stickman',
       tts,
       tts === 'gemini' ? 'Charon' : '',
-      s.imageModel,
-      s.videoModel,
+      s.visualProvider,
+      s.visualModels[s.visualProvider].image,
+      s.visualModels[s.visualProvider].video,
       JSON.stringify(DEFAULT_EDITOR),
       now,
       now
@@ -226,7 +228,7 @@ export function saveSnapshot(snap: ProjectSnapshot): number {
     db.prepare(
       `UPDATE projects SET title = @title, synopsis = @synopsis, duration_sec = @durationSec, language = @language,
         aspect_ratio = @aspectRatio, style_id = @styleId, tts_provider = @ttsProvider, tts_voice = @ttsVoice,
-        image_model = @imageModel, video_model = @videoModel, video_resolution = @videoResolution, status = @status, step = @step, editor_json = @editor, updated_at = @now
+        visual_provider = @visualProvider, image_model = @imageModel, video_model = @videoModel, video_resolution = @videoResolution, status = @status, step = @step, editor_json = @editor, updated_at = @now
        WHERE id = @id`
     ).run({ ...p, editor: JSON.stringify(p.editor), now })
 
@@ -299,9 +301,9 @@ export function duplicateProject(id: string): ProjectSummary {
     const p = db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as Row
     db.prepare(
       `INSERT INTO projects (id, title, synopsis, duration_sec, language, aspect_ratio, style_id, tts_provider, tts_voice,
-         image_model, video_model, video_resolution, status, step, cover_asset_id, editor_json, created_at, updated_at)
+         visual_provider, image_model, video_model, video_resolution, status, step, cover_asset_id, editor_json, created_at, updated_at)
        SELECT @newId, @title, synopsis, duration_sec, language, aspect_ratio, style_id, tts_provider, tts_voice,
-         image_model, video_model, video_resolution, status, step, @cover, editor_json, @now, @now FROM projects WHERE id = @id`
+         visual_provider, image_model, video_model, video_resolution, status, step, @cover, editor_json, @now, @now FROM projects WHERE id = @id`
     ).run({ newId, id, title: `${p.title} (salinan)`, cover: mapId(p.cover_asset_id), now })
     for (const a of src.assets) {
       db.prepare(

@@ -133,6 +133,10 @@ const MIGRATIONS: string[] = [
   ALTER TABLE clips ADD COLUMN voice_in_ms INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE clips ADD COLUMN voice_out_ms INTEGER;
   ALTER TABLE clips ADD COLUMN voice_start_ms INTEGER NOT NULL DEFAULT 0;
+  `,
+  // Which provider draws the project's images and videos; null keeps the original Higgsfield.
+  `
+  ALTER TABLE projects ADD COLUMN visual_provider TEXT;
   `
 ]
 

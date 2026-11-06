@@ -10,7 +10,7 @@ function client(key?: string): GoogleGenAI {
   return new GoogleGenAI({ apiKey: key ?? requireSecret('gemini') })
 }
 
-function friendly(e: unknown): Error {
+export function friendly(e: unknown): Error {
   const msg = (e as Error)?.message ?? String(e)
   if (/API key not valid|API_KEY_INVALID|PERMISSION_DENIED|401|403/i.test(msg))
     return new Error('Kunci Gemini ditolak. Periksa kunci di Pengaturan.')
