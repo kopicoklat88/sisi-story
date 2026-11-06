@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultLanguage: 'id',
   exportFolder: null,
   llmProvider: 'gemini',
-  llmModels: { gemini: 'gemini-3.8-flash', openrouter: '', groq: '', custom: '' },
+  llmModels: { gemini: 'gemini-3.8-flash', openrouter: '', groq: '', custom: '', openai: '' },
   customBaseUrl: '',
   geminiTtsModel: 'gemini-3.8-flash-tts',
   elevenModel: 'eleven_multilingual_v2',
@@ -49,6 +49,12 @@ export function getSettings(): AppSettings {
   const chatgptWeb = out.visualModels['chatgpt-web'] ?? DEFAULT_SETTINGS.visualModels['chatgpt-web']
   out.visualModels['chatgpt-web'] = {
     image: getVisualImageModel('chatgpt-web', chatgptWeb.image).id,
+    video: ''
+  }
+  // OpenAI Images API is image-only too.
+  const openai = out.visualModels.openai ?? DEFAULT_SETTINGS.visualModels.openai
+  out.visualModels.openai = {
+    image: getVisualImageModel('openai', openai.image).id,
     video: ''
   }
   return out

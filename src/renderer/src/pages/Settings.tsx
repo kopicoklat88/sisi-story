@@ -507,10 +507,50 @@ function TtsSection({ settings, statusOf, onChanged, onSettings }: { settings: A
   )
 }
 
-function HiggsfieldSection({ status, onChanged }: { status?: KeyStatus; onChanged: () => void }) {
+function HiggsfieldSection({ statusOf, onChanged }: { statusOf: (p: ApiProvider) => KeyStatus | undefined; onChanged: () => void }) {
+  const status = statusOf('higgsfield')
+  const openaiStatus = statusOf('openai')
   return (
     <>
-      <SectionTitle icon={<ImageIcon className="size-5" />} title="Gambar dan video" sub="Higgsfield membuat gambar klip, lembar karakter, dan video AI." />
+      <SectionTitle
+        icon={<ImageIcon className="size-5" />}
+        title="Gambar dan video"
+        sub="Higgsfield dan OpenAI membuat gambar klip, lembar karakter, dan (Higgsfield) video AI."
+      />
+      <Card>
+        <div className="flex items-center gap-3">
+          <ProviderLogo id="openai" />
+          <div className="flex flex-1 flex-col">
+            <span className="text-base font-bold">OpenAI</span>
+            <span className="text-[13px] text-ink-2">GPT Image lewat API resmi — model yang sama seperti di ChatGPT web, tapi sebagai backend sungguhan: tanpa browser, tanpa verifikasi bot</span>
+          </div>
+          <StatusBadge status={openaiStatus} />
+        </div>
+        <KeyForm
+          provider="openai"
+          name="OpenAI"
+          status={openaiStatus}
+          placeholder="Tempel kunci API OpenAI (sk-…)"
+          hint={
+            <>
+              Di <strong className="text-ink">platform.openai.com/api-keys</strong>, buat kunci baru lalu tempel di sini. Kunci ini butuh saldo
+              (isi $5 sekali, cukup untuk ratusan gambar — sekitar $0,01–0,05 per gambar). Kunci yang sama juga bisa dipakai untuk naskah
+              (pilih OpenAI di bagian Naskah di atas).
+            </>
+          }
+          help="Kunci dicek dengan daftar model, tanpa biaya."
+          link="https://platform.openai.com/api-keys"
+          linkLabel="Buka OpenAI API keys"
+          onChanged={onChanged}
+        />
+        <p className="flex items-start gap-2.5 border-t border-dashed border-line pt-4 text-[13px] leading-relaxed text-ink-2">
+          <Film className="mt-0.5 size-4 shrink-0" />
+          <span>
+            OpenAI Images API hanya membuat gambar (tanpa video), dengan referensi sampai 16 lembar karakter — paling banyak dari semua penyedia.
+            Model yang tersedia: GPT Image 1.5 dan GPT Image 2.
+          </span>
+        </p>
+      </Card>
       <Card>
         <div className="flex items-center gap-3">
           <ProviderLogo id="higgsfield" />
@@ -755,7 +795,7 @@ export function Settings() {
                 </div>
                 <LlmSection settings={settings} statusOf={statusOf} onChanged={reload} onSettings={setSettings} />
                 <TtsSection settings={settings} statusOf={statusOf} onChanged={reload} onSettings={setSettings} />
-                <HiggsfieldSection status={statusOf('higgsfield')} onChanged={reload} />
+                <HiggsfieldSection statusOf={statusOf} onChanged={reload} />
                 <ChatGptWebSection />
                 <WhisperSection settings={settings} onSettings={setSettings} />
               </>

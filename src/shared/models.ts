@@ -28,6 +28,13 @@ export const LLM_PROVIDERS: { id: LlmProvider; name: string; note: string; link:
     note: 'Server apa pun yang kompatibel dengan OpenAI API, misalnya Ollama, LM Studio, vLLM, DeepSeek, atau xAI Grok.',
     link: null,
     linkLabel: ''
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    note: 'GPT-5 dan kawan-kawan lewat API resmi — kunci yang sama juga dipakai untuk gambar GPT Image.',
+    link: 'https://platform.openai.com/api-keys',
+    linkLabel: 'Buka OpenAI API keys'
   }
 ]
 

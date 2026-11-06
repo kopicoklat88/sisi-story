@@ -110,7 +110,17 @@ satu waktu; pembatalan hanya membuang hasil di sisi kita. Penyedia ini gambar sa
 mengembalikan null untuknya dan semua pemakai (ModelSection, StoryboardStep, `generateClipVideo`) menanganinya
 sebagai "tidak ada video".
 
-### Ekstensi Chrome: ChatGPT Web dari dalam browser pengguna (bukan dari luar)
+### OpenAI Images API: pintu depan setelah empat jalur browser gagal
+Empat jalur ChatGPT Web (CDP, profil asli, profil baru, ekstensi Chrome) semuanya mengendalikan atau menumpang
+browser pengguna, dan keempatnya pernah gagal di mesin pengguna — flag debug tidak sampai, profil terkunci,
+bot check, sampai ekstensi yang malah bikin error di Chrome. Jalur kelima berhenti meniru dan memakai pintu
+depan: **Images API resmi OpenAI** dengan kunci pengguna sendiri (BYOK, seperti penyedia lain di aplikasi).
+Tidak ada browser, tidak ada profil, tidak ada flag, tidak ada ekstensi — satu panggilan HTTPS, gambar kembali
+sebagai base64. Harganya receh untuk pemakaian aplikasi ini: sekitar $0,01–0,05 per gambar (kualitas menengah),
+jadi isi $5 sekali cukup untuk ratusan gambar. Katalog hanya berisi model yang masih hidup (GPT Image 1.5 dan
+GPT Image 2); gpt-image-1 pensiun Oktober 2026 dan gpt-image-1-mini menyusul Desember 2026. Kunci yang sama
+juga didaftarkan sebagai penyedia LLM (daftar model chat dari `GET /v1/models`, disaring dari model gambar/audio/
+embedding), jadi satu kunci melayani naskah dan gambar.
 Tiga jalur Playwright (CDP, profil asli, profil baru) semuanya mengendalikan Chrome dari luar, dan ketiganya
 pernah gagal di mesin pengguna — flag debug tidak sampai, profil terkunci, atau bot check tetap muncul. Jalur
 keempat membalik arahnya: **ekstensi Chrome** (`resources/chatgpt-extension`, Manifest V3) yang jalan DI DALAM

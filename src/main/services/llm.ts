@@ -35,6 +35,9 @@ function compat(provider: CompatProvider, keyOverride?: string | null, baseOverr
     return { provider, base: 'https://openrouter.ai/api/v1', key, headers: { 'X-OpenRouter-Title': 'Bang Story', 'X-Title': 'Bang Story' } }
   }
   if (provider === 'groq') return { provider, base: 'https://api.groq.com/openai/v1', key, headers: {} }
+  if (provider === 'openai')
+    // Overridable for tests; the visual adapter uses the same base for the Images API.
+    return { provider, base: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1', key, headers: {} }
   const base = (baseOverride ?? getSettings().customBaseUrl).trim().replace(/\/+$/, '')
   if (!base) throw new LlmError('Alamat endpoint custom belum diisi. Buka Pengaturan untuk menambahkannya.')
   return { provider, base, key, headers: {} }
@@ -153,6 +156,20 @@ async function customModels(): Promise<ModelOption[]> {
     .map((m) => ({ id: m.id, name: m.id, description: m.owned_by ? `Pemilik: ${m.owned_by}` : undefined, tags: [] }))
 }
 
+/** OpenAI chat models only: the /models list also holds image, audio, embedding, and realtime models. */
+async function openaiModels(): Promise<ModelOption[]> {
+  const c = compat('openai')
+  requireKey(c)
+  const r = await call<{ data: { id: string }[] }>(c, '/models')
+  const CHAT = /^(gpt-|o[134]-)/
+  const NOT_CHAT = /image|audio|embedding|realtime|transcribe|tts|moderation|dall-e|whisper|sora|computer-use/i
+  const list = r.data.map((m) => m.id).filter((id) => CHAT.test(id) && !NOT_CHAT.test(id))
+  if (!list.length) throw new LlmError('OpenAI tidak mengembalikan daftar model chat. Periksa kunci di Pengaturan.')
+  return list
+    .sort()
+    .map((id): ModelOption => ({ id, name: id, description: 'Model chat OpenAI lewat API resmi', tags: ['JSON'] }))
+}
+
 async function fetchModels(source: ModelSource): Promise<ModelOption[]> {
   switch (source) {
     case 'gemini':
@@ -165,6 +182,8 @@ async function fetchModels(source: ModelSource): Promise<ModelOption[]> {
       return openRouterModels()
     case 'groq':
       return groqModels()
+    case 'openai':
+      return openaiModels()
     case 'custom':
       return customModels()
   }
@@ -201,8 +220,8 @@ export async function testLlm(provider: LlmProvider, key?: string | null, baseUr
       if (d.is_free_tier) parts.push('akun belum pernah top up, hanya model gratis dengan batas harian')
       return { ok: true, message: parts.join(' · ') }
     }
-    // Groq and OpenAI-compatible servers have no key-info endpoint; listing models proves the key works.
-    const models = provider === 'groq' ? await groqModels() : await customModels()
+    // Groq, OpenAI, and OpenAI-compatible servers have no key-info endpoint; listing models proves the key works.
+    const models = provider === 'groq' ? await groqModels() : provider === 'openai' ? await openaiModels() : await customModels()
     return { ok: true, message: `Terhubung · ${models.length} model tersedia` }
   } catch (e) {
     return { ok: false, message: (e as Error).message }

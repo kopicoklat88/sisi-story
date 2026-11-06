@@ -87,7 +87,7 @@ async function publicUrlFor(asset: Asset, signal: AbortSignal): Promise<string> 
 }
 
 function providerLabel(provider: VisualProvider): string {
-  return provider === 'gemini' ? 'Gemini' : provider === 'chatgpt-web' ? 'ChatGPT Web' : 'Higgsfield'
+  return provider === 'gemini' ? 'Gemini' : provider === 'chatgpt-web' ? 'ChatGPT Web' : provider === 'openai' ? 'OpenAI' : 'Higgsfield'
 }
 
 function imageProgress(ctx: TaskCtx, what: string, provider: VisualProvider) {
@@ -489,7 +489,7 @@ export async function estimateCredits(
   seconds = 5,
   resolution?: string | null
 ): Promise<CreditEstimate | null> {
-  if (provider === 'gemini' || provider === 'chatgpt-web') return null
+  if (provider === 'gemini' || provider === 'chatgpt-web' || provider === 'openai') return null
   const model = kind === 'image' ? getVisualImageModel(provider, modelId) : getVisualVideoModel(provider, modelId)
   if (!model) return null
   const key = `estimate:${provider}:${model.id}:${aspect}:${seconds}:${resolution ?? ''}`

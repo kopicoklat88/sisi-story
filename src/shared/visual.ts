@@ -15,15 +15,17 @@ import type { ModelOption, VisualProvider } from './types'
 /**
  * Who draws the clip images and animates them. Higgsfield is the original provider; Gemini
  * (Nano Banana images + Omni Flash video, through the Interactions API) is the second one, ChatGPT Web
- * (GPT Image in the browser) the third. Any later provider only needs a catalog
- * here plus an adapter in main/services/visual.ts.
+ * (GPT Image in the browser) the third, and OpenAI (GPT Image through the official Images API — the
+ * same model as ChatGPT web, but as a real backend: no browser, no bot check) the fourth. Any later
+ * provider only needs a catalog here plus an adapter in main/services/visual.ts.
  */
 export type { VisualProvider } from './types'
 
 export const VISUAL_PROVIDERS: { id: VisualProvider; label: string; note: string }[] = [
   { id: 'higgsfield', label: 'Higgsfield', note: '14 model gambar, 34 model video · bayar per kredit' },
   { id: 'gemini', label: 'Gemini', note: 'Nano Banana + Omni Flash · pakai kunci Gemini yang sama, bayar per pemakaian' },
-  { id: 'chatgpt-web', label: 'ChatGPT Web', note: 'GPT Image lewat browser · kuota free akun ChatGPT, tanpa kunci API' }
+  { id: 'chatgpt-web', label: 'ChatGPT Web', note: 'GPT Image lewat browser · kuota free akun ChatGPT, tanpa kunci API' },
+  { id: 'openai', label: 'OpenAI', note: 'GPT Image lewat API resmi · ~$0,01–0,05 per gambar, tanpa browser' }
 ]
 
 /** One image or video model from either provider, in the shape pickers and generation share. */
@@ -173,11 +175,51 @@ const CHATGPT_WEB_IMAGE_MODELS: VisualModel[] = [
 
 export const DEFAULT_CHATGPT_WEB_IMAGE_MODEL = 'gpt-image-1-web'
 
+/**
+ * OpenAI image models (GPT Image through the official Images API — gpt-image-1 and gpt-image-1-mini
+ * are retired, so the catalog starts at 1.5). Same model family as ChatGPT web, but as a real
+ * backend: no browser, no bot check, and up to 16 reference images on edits.
+ */
+const OPENAI_IMAGE_MODELS: VisualModel[] = [
+  {
+    id: 'gpt-image-1.5',
+    provider: 'openai',
+    name: 'GPT Image 1.5',
+    family: 'openai',
+    kind: 'image',
+    description: 'Model gambar OpenAI terbaru · cepat dan murah, sampai 16 gambar referensi',
+    tags: ['Rekomendasi', 'Referensi'],
+    inputMode: 'reference',
+    maxRefs: 16,
+    promptLimit: 4000,
+    durations: null,
+    resolutions: null
+  },
+  {
+    id: 'gpt-image-2',
+    provider: 'openai',
+    name: 'GPT Image 2',
+    family: 'openai',
+    kind: 'image',
+    description: 'Generasi GPT Image berikutnya · sampai 16 gambar referensi',
+    tags: ['Referensi'],
+    inputMode: 'reference',
+    maxRefs: 16,
+    promptLimit: 4000,
+    durations: null,
+    resolutions: null
+  }
+]
+
+export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1.5'
+
 export const DEFAULT_VISUAL_MODELS: Record<VisualProvider, { image: string; video: string }> = {
   higgsfield: { image: HF_DEFAULT_IMAGE_MODEL, video: HF_DEFAULT_VIDEO_MODEL },
   gemini: { image: DEFAULT_GEMINI_IMAGE_MODEL, video: DEFAULT_GEMINI_VIDEO_MODEL },
   // ChatGPT Web has no video model; the empty video id means "no video for this provider".
-  'chatgpt-web': { image: DEFAULT_CHATGPT_WEB_IMAGE_MODEL, video: '' }
+  'chatgpt-web': { image: DEFAULT_CHATGPT_WEB_IMAGE_MODEL, video: '' },
+  // OpenAI Images API is image-only too.
+  openai: { image: DEFAULT_OPENAI_IMAGE_MODEL, video: '' }
 }
 
 function fromHf(m: HfModel): VisualModel {
@@ -200,13 +242,14 @@ function fromHf(m: HfModel): VisualModel {
 export function visualImageModels(provider: VisualProvider): VisualModel[] {
   if (provider === 'gemini') return GEMINI_IMAGE_MODELS
   if (provider === 'chatgpt-web') return CHATGPT_WEB_IMAGE_MODELS
+  if (provider === 'openai') return OPENAI_IMAGE_MODELS
   return HF_IMAGE_MODELS.map(fromHf)
 }
 
 export function visualVideoModels(provider: VisualProvider): VisualModel[] {
   if (provider === 'gemini') return GEMINI_VIDEO_MODELS
-  // ChatGPT Web is image-only.
-  if (provider === 'chatgpt-web') return []
+  // ChatGPT Web and OpenAI Images API are image-only.
+  if (provider === 'chatgpt-web' || provider === 'openai') return []
   return HF_VIDEO_MODELS.map(fromHf)
 }
 

@@ -21,12 +21,13 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
 | `higgsfield` | gambar, lembar karakter, video |
 | `gemini` | LLM (naskah/visual), Gemini TTS, dan visual (Nano Banana + Omni Flash) |
 | `elevenlabs` | TTS |
-| `openrouter`, `groq`, `custom` | LLM lewat API kompatibel OpenAI |
+| `openrouter`, `groq`, `custom`, `openai` | LLM lewat API kompatibel OpenAI |
 | ChatGPT Web (tanpa kunci) | visual gambar saja, lewat browser |
+| `openai` | visual gambar saja, lewat Images API resmi |
 
 ## Visual (`services/visual.ts`, `services/gemini-visual.ts`, `services/chatgpt-web.ts`, `shared/visual.ts`)
 
-- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, atau `chatgpt-web`, dipilih per proyek
+- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, `chatgpt-web`, atau `openai`, dipilih per proyek
   (`project.visualProvider`, kolom `visual_provider`; proyek lama tanpa kolom dibaca sebagai `higgsfield`, dan nilai di luar daftar itu juga jatuh ke `higgsfield`).
   `generation.ts` tidak lagi memanggil Higgsfield langsung.
 - Higgsfield: seperti sebelumnya — gambar lewat `submitImage`, video lewat `submitVideo`, hasil diunduh dari URL,
@@ -43,6 +44,12 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
   per pemakaian, bukan kredit. Gemini juga tidak punya endpoint pembatalan: `cancel` adalah no-op dan menghentikan
   polling di sisi kita.
 - Semua gambar Gemini membawa watermark SynthID.
+- **OpenAI: GPT Image lewat Images API resmi** (`POST /v1/images/generations` JSON; dengan referensi, `POST /v1/images/edits`
+  multipart dengan `image[]`, sampai 16 gambar, `input_fidelity: high`). Model: GPT Image 1.5 (bawaan) dan GPT Image 2 —
+  gpt-image-1 dan gpt-image-1-mini sudah pensiun, jadi tidak masuk katalog. Kualitas `medium`, ukuran mengikuti aspek
+  (16:9 → 1536x1024, 9:16 → 1024x1536), hasil selalu base64 (`b64_json`, PNG). Tagihan per pemakaian (~$0,01–0,05 per
+  gambar menengah), jadi `estimate` selalu null dan UI menampilkan catatan tagihan. Kunci yang sama juga dipakai sebagai
+  penyedia LLM (GPT-5 dkk. lewat `/v1/chat/completions` dan daftar model dari `GET /v1/models`).
 - ChatGPT Web: **tanpa API** — ChatGPT web tidak punya API gambar publik, jadi driver (`services/chatgpt-web.ts`,
   Playwright) menyetir chatgpt.com di browser sungguhan: login sekali (sesi tersimpan di folder profil
   `chatgpt-web` di data aplikasi), tiap gambar dibuat di chat baru dengan prompt diketik, lembar karakter

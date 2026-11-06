@@ -6,6 +6,7 @@ import { createExtensionJob, extensionStatus, getExtensionJob } from './chatgpt-
 import * as geminiVisual from './gemini-visual'
 import * as hf from './higgsfield'
 import { downloadTo } from './http'
+import { getSecret } from '../secrets'
 
 /**
  * The visual provider boundary. Generation asks for an image or a video through this interface
@@ -132,6 +133,7 @@ function geminiAdapter(): VisualAdapter {
 export function adapter(provider: VisualProvider): VisualAdapter {
   if (provider === 'gemini') return geminiAdapter()
   if (provider === 'chatgpt-web') return chatGptWebAdapter()
+  if (provider === 'openai') return openaiAdapter()
   return higgsfieldAdapter()
 }
 
@@ -170,6 +172,117 @@ async function waitForExtensionJob(
       )
     }
     await new Promise((r) => setTimeout(r, 2000))
+  }
+}
+
+/**
+ * OpenAI Images API (GPT Image as a real backend — the same model family as ChatGPT web, but no
+ * browser, no bot check, no profile). gpt-image-1 and gpt-image-1-mini are retired, so the catalog
+ * starts at 1.5. Generations are a JSON call; with references it is a multipart /edits call
+ * (up to 16 images, input_fidelity high so character sheets stay faithful). The API always
+ * answers with base64, and bills per use (~$0,01–0,05 per image at medium quality).
+ */
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
+
+function openaiSize(aspect: AspectRatio): string {
+  if (aspect === '9:16') return '1024x1536'
+  if (aspect === '16:9') return '1536x1024'
+  return '1024x1024'
+}
+
+function friendlyOpenai(status: number, body: string): string {
+  let message = ''
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string; code?: string } }
+    message = parsed.error?.message ?? ''
+  } catch {
+    message = ''
+  }
+  if (status === 401) return 'Kunci OpenAI ditolak. Periksa kunci di Pengaturan › Gambar dan video.'
+  if (status === 429 || /insufficient_quota|billing/i.test(message)) {
+    return 'OpenAI menolak permintaan (kuota atau saldo habis?). Cek billing di platform.openai.com.'
+  }
+  return message ? `OpenAI: ${message}` : `OpenAI menjawab dengan status ${status}.`
+}
+
+const openaiRuns = new Map<string, Promise<{ bytes: Buffer; mime: string }>>()
+
+function openaiAdapter(): VisualAdapter {
+  return {
+    submitImage: (input, signal) => {
+      const key = getSecret('openai')
+      if (!key) return Promise.reject(new Error('Isi kunci OpenAI dulu di Pengaturan › Gambar dan video.'))
+      const size = openaiSize(input.aspect)
+      const refs = (input.refs ?? []).filter((r) => r.bytes).slice(0, 16)
+      const headers: Record<string, string> = { Authorization: `Bearer ${key}` }
+      const call =
+        refs.length > 0
+          ? (() => {
+              // Edits: references travel as multipart files; input_fidelity high keeps the
+              // character sheets faithful instead of drifting.
+              const form = new FormData()
+              refs.forEach((r, i) => form.append('image[]', new File([r.bytes as Buffer], `ref-${i + 1}.png`, { type: r.mime })))
+              form.append('prompt', input.prompt)
+              form.append('model', input.model.id)
+              form.append('size', size)
+              form.append('quality', 'medium')
+              form.append('input_fidelity', 'high')
+              form.append('output_format', 'png')
+              return fetch(`${OPENAI_BASE_URL}/images/edits`, { method: 'POST', headers, body: form, signal })
+            })()
+          : fetch(`${OPENAI_BASE_URL}/images/generations`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: input.prompt, model: input.model.id, size, quality: 'medium', n: 1, output_format: 'png' }),
+              signal
+            })
+      const id = `openai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const promise = call
+        .then(async (res) => {
+          if (!res.ok) throw new Error(friendlyOpenai(res.status, await res.text()))
+          const data = (await res.json()) as { data?: { b64_json?: string }[] }
+          const b64 = data.data?.[0]?.b64_json
+          if (!b64) throw new Error('OpenAI tidak mengembalikan gambar.')
+          return { bytes: Buffer.from(b64, 'base64'), mime: 'image/png' }
+        })
+        .catch((e) => {
+          if ((e as Error).name === 'AbortError') throw new Error('Dibatalkan')
+          throw e
+        })
+      openaiRuns.set(id, promise)
+      void promise.catch(() => {}).finally(() => openaiRuns.delete(id))
+      return Promise.resolve(id)
+    },
+    submitVideo: () => Promise.reject(new Error('OpenAI Images API hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')),
+    waitForResult: async (remoteId, kind, onTick, signal) => {
+      if (kind === 'video') throw new Error('OpenAI Images API hanya bisa membuat gambar.')
+      const run = openaiRuns.get(remoteId)
+      if (!run) throw new Error('Job OpenAI tidak ditemukan (mungkin aplikasi dimulai ulang).')
+      onTick('in_progress', 0)
+      const result = signal
+        ? await Promise.race([
+            run,
+            new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('Dibatalkan')), { once: true }))
+          ])
+        : await run
+      return { images: [result] }
+    },
+    // The in-flight request aborts through the job signal; nothing else to cancel.
+    cancel: async () => {},
+    // Per-use billing, no estimate endpoint.
+    estimate: async () => null,
+    testCredentials: async (cred) => {
+      const key = cred ?? getSecret('openai')
+      if (!key) return { ok: false, message: 'Isi kunci OpenAI dulu di Pengaturan › Gambar dan video.' }
+      try {
+        const res = await fetch(`${OPENAI_BASE_URL}/models`, { headers: { Authorization: `Bearer ${key}` } })
+        if (!res.ok) return { ok: false, message: friendlyOpenai(res.status, await res.text()) }
+        const data = (await res.json()) as { data?: unknown[] }
+        return { ok: true, message: `Terhubung · ${data.data?.length ?? 0} model tersedia` }
+      } catch (e) {
+        return { ok: false, message: (e as Error).message }
+      }
+    }
   }
 }
 
