@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { createConnection } from 'node:net'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
@@ -36,6 +37,8 @@ const IMAGE_TIMEOUT_MS = 10 * 60 * 1000
  * Chrome (already logged in, already trusted by bot checks) instead of launching a fresh,
  * easily-flagged one. Set to an empty string to disable. */
 const CDP_URL = process.env.CHATGPT_WEB_CDP_URL ?? 'http://127.0.0.1:9222'
+/** How long to wait for the debug port after relaunching Chrome (ms). */
+const CDP_WAIT_MS = Number(process.env.CHATGPT_WEB_CDP_WAIT_MS ?? 30000)
 /** Hides the automation flag so bot checks treat the fresh-profile browser more like a normal one. */
 const STEALTH_INIT = `Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
@@ -374,10 +377,23 @@ function findChromeWindows(): string | null {
   return candidates.find((c) => existsSync(c)) ?? null
 }
 
+function findChromeDarwin(): string | null {
+  const candidates = [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+  ]
+  return candidates.find((c) => existsSync(c)) ?? null
+}
+
 async function launchChromeWithDebugging(): Promise<void> {
   const args = ['--remote-debugging-port=9222', '--restore-last-session']
   if (process.platform === 'darwin') {
-    launchDetached('open', ['-a', 'Google Chrome', '--args', ...args])
+    // Launch the binary directly: `open -a` does not reliably deliver --args when Chrome
+    // was just quit (the relaunch can hand off to the still-shutting-down instance and
+    // the debug flag never lands, so the port never answers).
+    const exe = findChromeDarwin()
+    if (!exe) throw new Error('Google Chrome tidak ketemu di /Applications. Pasang Chrome dulu, lalu coba lagi.')
+    launchDetached(exe, args)
   } else if (process.platform === 'win32') {
     const exe = findChromeWindows()
     if (!exe) throw new Error('Google Chrome tidak ketemu di lokasi standar. Pasang Chrome dulu, lalu coba lagi.')
@@ -387,7 +403,7 @@ async function launchChromeWithDebugging(): Promise<void> {
   }
 }
 
-async function waitForCdp(timeoutMs = 30000): Promise<boolean> {
+async function waitForCdp(timeoutMs = CDP_WAIT_MS): Promise<boolean> {
   return waitFor(async () => {
     try {
       const res = await fetch('http://127.0.0.1:9222/json/version')
@@ -398,22 +414,57 @@ async function waitForCdp(timeoutMs = 30000): Promise<boolean> {
   }, timeoutMs)
 }
 
+/** Raw TCP check: tells "Chrome runs but without the debug flag" apart from "Chrome is down". */
+async function isTcpPortOpen(port: number, host = '127.0.0.1', timeoutMs = 1500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = createConnection({ port, host })
+    const done = (ok: boolean): void => {
+      try {
+        socket.destroy()
+      } catch {
+        // Already closed.
+      }
+      resolve(ok)
+    }
+    socket.once('connect', () => done(true))
+    socket.once('error', () => done(false))
+    socket.setTimeout(timeoutMs, () => done(false))
+  })
+}
+
 /**
  * Restarts the user's Chrome with remote debugging, so the driver can attach to the session
  * that is already logged in. Tabs come back (--restore-last-session). The user does nothing
  * by hand: one click in Settings does the whole restart and waits until the debug port answers.
+ *
+ * Two hard-won details: after the old Chrome is gone the code waits a moment before
+ * relaunching (the singleton lock is released a beat after the main process exits — launching
+ * too early hands off to the dying instance and the debug flag never lands), and the whole
+ * restart is tried once more with a longer settle when the port does not answer the first time.
  */
 export async function chatGptWebAttachChrome(): Promise<{ attached: boolean }> {
   await closeChatGptWeb()
-  if (await isChromeRunning()) {
-    await quitChrome()
-    const gone = await waitFor(async () => !(await isChromeRunning()), 15000)
-    if (!gone) throw new Error('Chrome tidak mau tertutup. Tutup Chrome secara manual, lalu coba lagi.')
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    if (await isChromeRunning()) {
+      await quitChrome()
+      const gone = await waitFor(async () => !(await isChromeRunning()), 15000)
+      if (!gone) throw new Error('Chrome tidak mau tertutup. Tutup Chrome secara manual, lalu coba lagi.')
+    }
+    // Let the old instance fully release its singleton lock before relaunching.
+    await new Promise((r) => setTimeout(r, attempt === 1 ? 1500 : 3000))
+    await launchChromeWithDebugging()
+    if (await waitForCdp()) return { attached: true }
   }
-  await launchChromeWithDebugging()
-  const up = await waitForCdp()
-  if (!up) {
-    throw new Error('Chrome sudah dibuka lagi, tapi port debugging-nya belum siap. Tunggu sebentar lalu coba lagi.')
+  const running = await isChromeRunning()
+  const tcp = await isTcpPortOpen(9222)
+  if (!running) {
+    throw new Error('Chrome tidak jalan setelah dibuka lagi. Buka Chrome secara manual, lalu klik tombol ini lagi.')
   }
-  return { attached: true }
+  if (!tcp) {
+    throw new Error(
+      'Chrome sudah jalan, tapi port debugging-nya tidak aktif — flag debug tidak sampai ke Chrome. ' +
+        'Tutup Chrome secara manual, lalu klik tombol ini lagi.'
+    )
+  }
+  throw new Error('Port debugging sudah terbuka tapi belum menjawab. Tunggu sebentar lalu coba lagi.')
 }

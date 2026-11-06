@@ -596,7 +596,7 @@ function ChatGptWebSection() {
    * through the session that is already there. No manual Terminal command needed. */
   const attachAndLogin = async (): Promise<void> => {
     setBusy(true)
-    setNote('Chrome ditutup lalu dibuka lagi (tab pulih kembali)…')
+    setNote('Chrome ditutup lalu dibuka lagi (tab pulih kembali, tunggu sampai semenit)…')
     try {
       await window.api.chatgptWeb.attach()
       await login()

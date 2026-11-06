@@ -122,8 +122,14 @@ dan `closeChatGptWeb` tidak pernah menutup browser pengguna (hanya memutus sambu
 menutup dan membuka Chrome sendiri, tombol "Pakai Chrome yang sudah login" di Pengaturan memanggil
 `chatGptWebAttachChrome`: tutup Chrome (macOS `osascript`, Windows `taskkill`, Linux `pkill`), tunggu prosesnya
 hilang, buka lagi dengan `--remote-debugging-port=9222 --restore-last-session` (tab pulih kembali), lalu tunggu
-port debug menjawab (maksimal 30 detik). Kalau tidak ada Chrome ber-debug port, driver jatuh ke profil baru seperti
-sebelumnya, tapi diperkeras: `--disable-blink-features=AutomationControlled` + init script yang menyembunyikan
-`navigator.webdriver` (plus `plugins`/`languages` normal) supaya pemeriksaan bot biasanya lolos sendiri dalam
-beberapa detik. Kalau Chrome yang ditempel mati di tengah jalan, `ensurePage` membuang koneksi basi itu dan jatuh
-ke profil baru.
+port debug menjawab (maksimal 30 detik, bisa diubah lewat `CHATGPT_WEB_CDP_WAIT_MS`). Di Mac Chrome diluncurkan
+langsung dari binary-nya (`.../Google Chrome.app/Contents/MacOS/Google Chrome`), bukan lewat `open -a` — `open`
+tidak selalu menyampaikan `--args` kalau Chrome baru saja ditutup (relauch menyerahkan ke instance yang sedang
+mati dan flag debug tidak sampai, port tidak pernah menjawab). Setelah Chrome lama hilang, kode menunggu sejenak
+sebelum meluncurkan lagi (kunci singleton lepas agak setelah proses utama mati), dan seluruh restart dicoba sekali
+lagi dengan jeda lebih lama kalau port belum menjawab. Kalau tetap gagal, error-nya diagnostik: Chrome tidak jalan
+/ Chrome jalan tapi port 9222 tertutup (flag tidak sampai) / port terbuka tapi belum menjawab HTTP. Kalau tidak ada
+Chrome ber-debug port, driver jatuh ke profil baru seperti sebelumnya, tapi diperkeras:
+`--disable-blink-features=AutomationControlled` + init script yang menyembunyikan `navigator.webdriver` (plus
+`plugins`/`languages` normal) supaya pemeriksaan bot biasanya lolos sendiri dalam beberapa detik. Kalau Chrome yang
+ditempel mati di tengah jalan, `ensurePage` membuang koneksi basi itu dan jatuh ke profil baru.
