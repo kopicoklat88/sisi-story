@@ -110,6 +110,23 @@ satu waktu; pembatalan hanya membuang hasil di sisi kita. Penyedia ini gambar sa
 mengembalikan null untuknya dan semua pemakai (ModelSection, StoryboardStep, `generateClipVideo`) menanganinya
 sebagai "tidak ada video".
 
+### Ekstensi Chrome: ChatGPT Web dari dalam browser pengguna (bukan dari luar)
+Tiga jalur Playwright (CDP, profil asli, profil baru) semuanya mengendalikan Chrome dari luar, dan ketiganya
+pernah gagal di mesin pengguna — flag debug tidak sampai, profil terkunci, atau bot check tetap muncul. Jalur
+keempat membalik arahnya: **ekstensi Chrome** (`resources/chatgpt-extension`, Manifest V3) yang jalan DI DALAM
+browser pengguna sebagai kode first-party. Tidak ada profil yang ditebak, tidak ada Chrome yang ditutup, tidak
+ada flag, tidak ada CDP — ekstensi itu sendiri adalah browser pengguna. Content script di chatgpt.com mengambil
+tugas gambar dari server lokal aplikasi (`http://127.0.0.1:18097`, `services/chatgpt-extension-server.ts`),
+mengerjakannya di tab itu persis seperti pengguna (composer, lampiran lewat DataTransfer, tombol kirim, tunggu
+gambar `oaiusercontent`, unduh sebagai base64), lalu mengirim hasilnya kembali. Content script yang melakukan
+polling (ia hidup selama tab terbuka), jadi tidak ada masalah service worker yang tertidur; background worker
+hanya membuka tab chatgpt.com saat ekstensi dipasang atau browser dinyalakan. Servernya HTTP biasa di loopback
+saja, dengan antrean job FIFO, long-poll `/jobs/next`, heartbeat `/status`, dan CORS terbuka untuk content
+script. Adapter ChatGPT Web memakai ekstensi dulu kalau terhubung dan tab-nya login, lalu jatuh ke driver
+Playwright seperti sebelumnya. Pemasangannya satu kali: "Load unpacked" di chrome://extensions (Developer mode).
+Batas yang jujur: selector composer sama dengan driver Playwright (divalidasi terhadap mock, bukan chatgpt.com
+asli), dan ekstensi butuh tab chatgpt.com terbuka untuk mengambil tugas.
+
 ### ChatGPT Web memakai profil Chrome pengguna supaya lolos verifikasi bot
 Profil baru yang diluncurkan Playwright mudah dicurigai Cloudflare (tanpa cookie, tanpa riwayat, flag otomasi
 terlihat), jadi login sering mentok di halaman verifikasi bot. Jalur utama sekarang: kalau Chrome pengguna berjalan

@@ -7,6 +7,7 @@ import { resumeJobs } from './generation'
 import { registerIpc } from './ipc'
 import { handleStudioProtocol, registerSchemes } from './protocol'
 import { warmUpEncryption } from './secrets'
+import { startExtensionServer, stopExtensionServer } from './services/chatgpt-extension-server'
 
 /**
  * The app used to be called "Studio Cerita". Its data folder (projects, database, saved keys) moves to the
@@ -101,6 +102,9 @@ if (!single) {
     getDb()
     handleStudioProtocol()
     registerIpc()
+    // The ChatGPT extension bridge is best-effort: if its port is taken, the ChatGPT Web
+    // provider falls back to its Playwright driver.
+    startExtensionServer()
     createWindow()
     resumeJobs()
 
@@ -113,5 +117,8 @@ if (!single) {
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('will-quit', () => closeDb())
+  app.on('will-quit', () => {
+    stopExtensionServer()
+    closeDb()
+  })
 }

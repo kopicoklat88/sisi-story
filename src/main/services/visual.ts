@@ -2,6 +2,7 @@ import { getImageModel, getVideoModel, imageBody, videoBody, type HfModel } from
 import { hfModelOf, type VisualModel, type VisualProvider } from '@shared/visual'
 import type { AspectRatio, CreditEstimate, KeyTestResult } from '@shared/types'
 import * as chatgptWeb from './chatgpt-web'
+import { createExtensionJob, extensionStatus, getExtensionJob } from './chatgpt-extension-server'
 import * as geminiVisual from './gemini-visual'
 import * as hf from './higgsfield'
 import { downloadTo } from './http'
@@ -138,9 +139,55 @@ export function adapter(provider: VisualProvider): VisualAdapter {
 // so their promises live here, not on the adapter.
 const chatGptRuns = new Map<string, { promise: Promise<{ bytes: Buffer; mime: string }>; onTick: (status: string, elapsedMs: number) => void }>()
 
+/**
+ * Waits for an extension job to finish: polls the bridge every 2 seconds until the extension
+ * reports the image (or an error), or 10 minutes pass. A job that never leaves 'pending' means
+ * the extension never picked it up — the tab is closed or the extension is off — and the error
+ * says so instead of timing out silently.
+ */
+async function waitForExtensionJob(
+  id: string,
+  onTick: (status: string, elapsedMs: number) => void,
+  signal?: AbortSignal
+): Promise<{ bytes: Buffer; mime: string }> {
+  const started = Date.now()
+  for (;;) {
+    if (signal?.aborted) throw new Error('Dibatalkan')
+    onTick('in_progress', Date.now() - started)
+    const job = await getExtensionJob(id)
+    if (!job) throw new Error('Job ekstensi ChatGPT tidak ditemukan (aplikasi dimulai ulang?).')
+    if (job.status === 'done' && job.image) {
+      return { bytes: Buffer.from(job.image.split(',')[1] ?? '', 'base64'), mime: job.mime ?? 'image/png' }
+    }
+    if (job.status === 'error') {
+      throw new Error(job.error ?? 'Ekstensi ChatGPT gagal membuat gambar.')
+    }
+    if (Date.now() - started > 10 * 60 * 1000) {
+      throw new Error(
+        job.status === 'pending'
+          ? 'Ekstensi ChatGPT tidak mengambil tugasnya. Buka chatgpt.com di Chrome dan pastikan ekstensi Bang Story aktif, lalu coba lagi.'
+          : 'ChatGPT web tidak membalas gambar dalam 10 menit. Coba lagi nanti.'
+      )
+    }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+}
+
 function chatGptWebAdapter(): VisualAdapter {
   return {
-    submitImage: (input) => {
+    submitImage: async (input) => {
+      // First choice: the Chrome extension, when it is connected and its tab is logged in. It
+      // runs inside the user's real browser, so there is no profile, flag, or bot check involved.
+      // References travel as data URLs inside the job; the content script turns them into files.
+      const ext = await extensionStatus().catch(() => ({ connected: false, loggedIn: false }))
+      if (ext.connected && ext.loggedIn) {
+        const refs = (input.refs ?? [])
+          .filter((r) => r.bytes)
+          .map((r) => ({ dataUrl: `data:${r.mime};base64,${(r.bytes as Buffer).toString('base64')}`, mime: r.mime }))
+        const id = await createExtensionJob(input.prompt, refs)
+        return `ext:${id}`
+      }
+      // Fallback: the Playwright driver (CDP, real profile, or a fresh profile).
       // References go to the browser as files; a reference without bytes cannot be sent.
       const refs = (input.refs ?? []).filter((r) => r.bytes).map((r) => ({ bytes: r.bytes as Buffer, mime: r.mime }))
       const files = chatgptWeb.writeRefFiles(refs)
@@ -153,14 +200,18 @@ function chatGptWebAdapter(): VisualAdapter {
       }
       chatGptRuns.set(id, entry)
       void entry.promise.catch(() => {}).finally(() => chatGptRuns.delete(id))
-      return Promise.resolve(id)
+      return id
     },
     submitVideo: () => Promise.reject(new Error('ChatGPT Web hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')),
     waitForResult: async (remoteId, kind, onTick, signal) => {
+      if (kind === 'video') throw new Error('ChatGPT Web hanya bisa membuat gambar.')
+      if (remoteId.startsWith('ext:')) {
+        const result = await waitForExtensionJob(remoteId.slice(4), onTick, signal)
+        return { images: [result] }
+      }
       const entry = chatGptRuns.get(remoteId)
       if (!entry) throw new Error('Job ChatGPT Web tidak ditemukan (mungkin aplikasi dimulai ulang).')
       entry.onTick = onTick
-      if (kind === 'video') throw new Error('ChatGPT Web hanya bisa membuat gambar.')
       const result = signal
         ? await Promise.race([
             entry.promise,
@@ -175,6 +226,12 @@ function chatGptWebAdapter(): VisualAdapter {
     // Free ChatGPT quota, no estimate endpoint.
     estimate: async () => null,
     testCredentials: async () => {
+      const ext = await extensionStatus().catch(() => ({ connected: false, loggedIn: false }))
+      if (ext.connected) {
+        return ext.loggedIn
+          ? { ok: true, message: 'Terhubung · ekstensi ChatGPT aktif, login ChatGPT aktif' }
+          : { ok: false, message: 'Ekstensi ChatGPT terhubung, tapi belum login. Login ChatGPT di Chrome dulu.' }
+      }
       const { loggedIn } = await chatgptWeb.chatGptWebStatus()
       return loggedIn
         ? { ok: true, message: 'Terhubung · login ChatGPT aktif' }

@@ -559,7 +559,8 @@ function HiggsfieldSection({ status, onChanged }: { status?: KeyStatus; onChange
  */
 function ChatGptWebSection() {
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
-  const [driver, setDriver] = useState<'cdp' | 'real-profile' | 'fresh' | null>(null)
+  const [driver, setDriver] = useState<'cdp' | 'real-profile' | 'fresh' | 'extension' | null>(null)
+  const [extDir, setExtDir] = useState('')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
@@ -576,6 +577,12 @@ function ChatGptWebSection() {
       .catch(() => {
         if (live) setLoggedIn(false)
       })
+    void window.api.chatgptWeb
+      .extensionDir()
+      .then((d) => {
+        if (live) setExtDir(d)
+      })
+      .catch(() => {})
     return () => {
       live = false
     }
@@ -659,6 +666,21 @@ function ChatGptWebSection() {
           </Button>
         )}
         {note && <span className="text-[13px] text-ink-2">{note}</span>}
+      </div>
+      <div className="flex flex-col gap-2 border-t border-dashed border-line pt-4">
+        <span className="text-sm font-semibold">
+          Cara paling andal: ekstensi Chrome {driver === 'extension' && <Badge tone="ok">Ekstensi aktif</Badge>}
+        </span>
+        <p className="text-[13px] leading-relaxed text-ink-2">
+          Ekstensi ini jalan di dalam Chrome kamu sendiri — tanpa profil, tanpa flag, tanpa verifikasi bot. Sekali pasang, gambar
+          dibuat lewat tab chatgpt.com yang sudah kamu buka. Caranya: buka chrome://extensions, nyalakan Developer mode, klik
+          “Load unpacked”, lalu pilih folder ini:
+        </p>
+        {extDir && <span className="break-all font-mono text-[12px] text-ink-2">{extDir}</span>}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={() => void window.api.chatgptWeb.openExtensionDir()}>Buka folder ekstensi</Button>
+          <Button onClick={() => void window.api.chatgptWeb.openChromeExtensions()}>Buka chrome://extensions</Button>
+        </div>
       </div>
     </Card>
   )

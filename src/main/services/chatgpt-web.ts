@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
+import { extensionStatus } from './chatgpt-extension-server'
 
 /**
  * GPT Image through chatgpt.com in a real browser, spending the ChatGPT account's free image
@@ -217,7 +218,11 @@ async function isLoggedIn(p: Page): Promise<boolean> {
 export async function chatGptWebStatus(
   profileDir = defaultProfileDir(),
   executablePath?: string
-): Promise<{ loggedIn: boolean; driver: Exclude<DriverKind, null> | null }> {
+): Promise<{ loggedIn: boolean; driver: Exclude<DriverKind, null> | 'extension' | null }> {
+  // First: the Chrome extension, when installed and connected. It runs inside the user's real
+  // browser, so it is the most trusted path — and it needs no browser launch at all to check.
+  const ext = await extensionStatus()
+  if (ext.connected) return { loggedIn: ext.loggedIn, driver: 'extension' }
   // In the user's own Chrome, look at the tabs they already have; never open a new tab just to check.
   if ((!page || page.isClosed()) && !starting) {
     const cdp = await cdpContextOrNull()

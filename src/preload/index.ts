@@ -66,7 +66,10 @@ const api: StudioApi = {
     status: call('chatgptWeb:status'),
     login: call('chatgptWeb:login'),
     attach: call('chatgptWeb:attach'),
-    release: call('chatgptWeb:release')
+    release: call('chatgptWeb:release'),
+    extensionDir: call('chatgptWeb:extensionDir'),
+    openExtensionDir: call('chatgptWeb:openExtensionDir'),
+    openChromeExtensions: call('chatgptWeb:openChromeExtensions')
   },
   models: {
     list: call('models:list')

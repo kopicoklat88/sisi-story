@@ -51,14 +51,19 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
   serial), browser tampil supaya pengguna bisa melihat dan menyelamatkan kalau ada pemeriksaan bot. Hanya gambar
   (GPT Image 1) — video AI tidak tersedia, dan UI menampilkannya sebagai catatan, bukan pilihan model. Tidak ada
   estimasi biaya (kuota free akun ChatGPT) dan tidak ada pembatalan sungguhan (`cancel` no-op; hasil yang sudah
-  berjalan di browser dibuang). **Tiga jalur browser:** kalau Chrome pengguna berjalan dengan remote debugging
-  (port 9222, `CHATGPT_WEB_CDP_URL`), driver menumpang Chrome itu lewat CDP — sudah login, tanpa verifikasi bot,
-  dan browser pengguna tidak pernah ditutup driver; kalau tidak, tombol "Pakai Chrome yang sudah login" di
-  Pengaturan menjalankan driver dengan **profil Chrome asli pengguna** — Chrome ditutup sekali, lalu dibuka lagi
-  sebagai browser kerja dengan tab yang pulih, sudah login dan sudah dipercaya, tanpa flag debug sama sekali.
-  Selama browser kerja itu jalan, Chrome biasa tidak bisa dibuka; tombol "Kembalikan Chrome" menutup driver dan
-  membuka lagi Chrome pengguna secara normal. Status check dan pembuatan gambar tidak pernah menutup Chrome
-  pengguna sendiri. Kalau tidak ada profil Chrome, driver meluncurkan profil baru yang diperkeras
+  berjalan di browser dibuang). **Empat jalur browser, dari yang paling andal:** (1) **ekstensi Chrome** ("Bang Story —
+  ChatGPT", `resources/chatgpt-extension`) — jalan di dalam Chrome pengguna sendiri sebagai kode first-party, jadi
+  tanpa profil, tanpa flag debug, tanpa verifikasi bot, dan tanpa menutup Chrome; ekstensi mengambil tugas gambar
+  dari server lokal aplikasi (`http://127.0.0.1:18097`, `services/chatgpt-extension-server.ts`), mengerjakannya di
+  tab chatgpt.com, lalu mengirim hasilnya kembali. Sekali pasang lewat "Load unpacked" di chrome://extensions, dan
+  selama ekstensinya terhubung, adapter memakai jalur ini dulu. (2) Kalau Chrome pengguna berjalan dengan remote
+  debugging (port 9222, `CHATGPT_WEB_CDP_URL`), driver menumpang Chrome itu lewat CDP — sudah login, tanpa
+  verifikasi bot, dan browser pengguna tidak pernah ditutup driver; (3) kalau tidak, tombol "Pakai Chrome yang
+  sudah login" di Pengaturan menjalankan driver dengan **profil Chrome asli pengguna** — Chrome ditutup sekali,
+  lalu dibuka lagi sebagai browser kerja dengan tab yang pulih, sudah login dan sudah dipercaya, tanpa flag debug
+  sama sekali. Selama browser kerja itu jalan, Chrome biasa tidak bisa dibuka; tombol "Kembalikan Chrome" menutup
+  driver dan membuka lagi Chrome pengguna secara normal. Status check dan pembuatan gambar tidak pernah menutup
+  Chrome pengguna sendiri. (4) Kalau tidak ada profil Chrome, driver meluncurkan profil baru yang diperkeras
   (`--disable-blink-features=AutomationControlled` + init script sembunyikan `navigator.webdriver`) supaya
   pemeriksaan bot biasanya lolos sendiri.
 - Menambah penyedia visual baru: tambahkan ke `VisualProvider` (`types.ts`), katalog di `shared/visual.ts`,
