@@ -95,12 +95,14 @@ export interface StudioApi {
   }
   /** ChatGPT Web (browser provider): no API key, the login lives in the browser profile. */
   chatgptWeb: {
-    /** Whether the ChatGPT browser session is logged in right now. */
-    status(): Promise<{ loggedIn: boolean }>
+    /** Whether the ChatGPT browser session is logged in right now, and which browser holds it. */
+    status(): Promise<{ loggedIn: boolean; driver: 'cdp' | 'real-profile' | 'fresh' | null }>
     /** Opens the browser for the user to log in, and waits until the composer appears. */
     login(): Promise<{ loggedIn: boolean }>
-    /** Restarts the user's Chrome with remote debugging so the driver can attach to it. */
+    /** Starts the driver on the user's real Chrome profile (already logged in, no bot check). */
     attach(): Promise<{ attached: boolean }>
+    /** Closes the driver browser and hands the user's Chrome back. */
+    release(): Promise<{ released: boolean }>
   }
   models: {
     /** Live model list from the provider. Served from cache unless `refresh` is set or the cache is stale. */

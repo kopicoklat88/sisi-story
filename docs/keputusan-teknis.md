@@ -99,17 +99,6 @@ render ASS ekspor sekaligus — terlalu besar untuk satu perubahan. Gerak kamera
 Napas) sudah masuk dan berlaku di pratinjau dan ekspor; tipografi kinetik tetap ide lanjutan di
 `docs/masalah-diketahui.md`.
 
-### Pollinations jadi cadangan otomatis (bukan penyedia utama)
-Gemini gagal berulang karena kuota habis dan server sibuk, sementara ChatGPT Web ribet (login browser, verifikasi
-bot, attach Chrome). Alih-alih menambah penyedia berbayar lagi, alurnya diubah: **kegagalan menurun ke layanan
-gratis, bukan ke error.** Gambar yang gagal di penyedia pilihan dicoba sekali lagi lewat Pollinations (FLUX,
-gratis, tanpa kunci/login/browser); naskah yang gagal dicoba sekali lagi lewat teks Pollinations. Cadangan hanya
-untuk kegagalan yang bisa diperbaiki cadangan (kuota, overload, jaringan, JSON jelek) — kunci yang ditolak tidak
-pernah ditutupi, dan pembatalan pengguna tidak pernah dicoba ulang. Pollinations sengaja TIDAK dijadikan bawaan:
-kualitas gambarnya di bawah Nano Banana dan ia tidak menerima gambar referensi, jadi konsistensi tokoh mengandalkan
-teks saja; penyedia berbayar tetap bawaan untuk kualitas, Pollinations hanya jaring pengaman. Endpoint-nya punya
-keanehan versi: daftar model teks di `/openai/models` (tanpa `/v1`), chat completions di `/openai/v1/chat/completions`.
-
 ### ChatGPT Web disetir lewat browser, bukan API
 ChatGPT web tidak punya API gambar publik, jadi satu-satunya "pointing" ke kuota free-nya adalah otomasi browser.
 Driver memakai Playwright (`playwright-core`, tanpa unduh browser) dengan `channel: 'chrome'` — Chrome pengguna
@@ -121,7 +110,7 @@ satu waktu; pembatalan hanya membuang hasil di sisi kita. Penyedia ini gambar sa
 mengembalikan null untuknya dan semua pemakai (ModelSection, StoryboardStep, `generateClipVideo`) menanganinya
 sebagai "tidak ada video".
 
-### ChatGPT Web menumpang Chrome pengguna (CDP) supaya lolos verifikasi bot
+### ChatGPT Web memakai profil Chrome pengguna supaya lolos verifikasi bot
 Profil baru yang diluncurkan Playwright mudah dicurigai Cloudflare (tanpa cookie, tanpa riwayat, flag otomasi
 terlihat), jadi login sering mentok di halaman verifikasi bot. Jalur utama sekarang: kalau Chrome pengguna berjalan
 dengan `--remote-debugging-port=9222`, driver menyambung lewat CDP (`chromium.connectOverCDP`, endpoint default
@@ -129,20 +118,20 @@ dengan `--remote-debugging-port=9222`, driver menyambung lewat CDP (`chromium.co
 Chrome yang sudah login dan sudah dipercaya, jadi tanpa login ulang dan tanpa verifikasi. Kalau pengguna sudah
 punya tab chatgpt.com yang terbuka, driver memakai tab itu langsung (tanpa navigasi baru, jadi tanpa pemicu
 verifikasi baru); `status` di jalur ini hanya memeriksa tab chatgpt.com yang sudah ada (tidak membuka tab baru),
-dan `closeChatGptWeb` tidak pernah menutup browser pengguna (hanya memutus sambungan). Supaya pengguna tidak perlu
-menutup dan membuka Chrome sendiri, tombol "Pakai Chrome yang sudah login" di Pengaturan memanggil
-`chatGptWebAttachChrome`: tutup Chrome (macOS `osascript`, Windows `taskkill`, Linux `pkill`), tunggu prosesnya
-hilang, buka lagi dengan `--remote-debugging-port=9222 --restore-last-session` (tab pulih kembali), lalu tunggu
-port debug menjawab (maksimal 30 detik, bisa diubah lewat `CHATGPT_WEB_CDP_WAIT_MS`). Di Mac percobaan pertama
-memakai `open -n -a "Google Chrome" --args ...` (`-n` memaksa instance baru supaya flag tidak hilang karena
-diserahkan ke instance lama); percobaan kedua meluncurkan binary-nya langsung
-(`.../Google Chrome.app/Contents/MacOS/Google Chrome`) supaya satu kekhasan jalur luncur tidak menggagalkan
-keduanya. Setelah Chrome lama hilang, kode menunggu sejenak sebelum meluncurkan lagi (kunci singleton lepas agak
-setelah proses utama mati), dan seluruh restart dicoba sekali lagi dengan jeda lebih lama kalau port belum
-menjawab. Kalau tetap gagal, error-nya diagnostik berdasarkan fakta: Chrome tidak jalan / port 9222 tertutup dan
-perintah Chrome yang jalan tidak mengandung flag (flag tidak sampai) / flag ada tapi port tetap tertutup (port
-diblokir atau dipakai program lain) / port terbuka tapi belum menjawab HTTP. Kalau tidak ada
-Chrome ber-debug port, driver jatuh ke profil baru seperti sebelumnya, tapi diperkeras:
+dan `closeChatGptWeb` tidak pernah menutup browser pengguna (hanya memutus sambungan). Kalau tidak ada
+Chrome ber-debug port, jalur kedua: **profil Chrome asli pengguna** (`launchPersistentContext` dengan folder profil
+Chrome yang sesungguhnya — macOS `~/Library/Application Support/Google/Chrome`, Windows
+`%LOCALAPPDATA%/Google/Chrome/User Data`, Linux `~/.config/google-chrome`, bisa diubah lewat
+`CHATGPT_WEB_PROFILE_DIR`). Sesi, cookie, dan riwayat semuanya ada di sana, jadi ChatGPT melihat browser-nya
+sendiri yang sudah dipercaya — tanpa login, tanpa verifikasi, dan tanpa flag debug sama sekali. Chrome pengguna
+harus ditutup dulu (satu profil, satu Chrome), tab-nya pulih dengan `--restore-last-session`, dan setelah Chrome
+lama hilang kode menunggu sejenak sebelum meluncurkan lagi (kunci singleton lepas agak setelah proses utama mati).
+Jalur ini hanya dimulai dari tombol "Pakai Chrome yang sudah login" — status check atau pembuatan gambar tidak
+pernah menutup Chrome pengguna sendiri. Selama browser kerja itu jalan, Chrome biasa tidak bisa dibuka; tombol
+"Kembalikan Chrome" menutup driver dan membuka lagi Chrome pengguna secara normal (tanpa flag). Kalau tidak ada
+profil Chrome, driver jatuh ke profil baru seperti sebelumnya, tapi diperkeras:
 `--disable-blink-features=AutomationControlled` + init script yang menyembunyikan `navigator.webdriver` (plus
 `plugins`/`languages` normal) supaya pemeriksaan bot biasanya lolos sendiri dalam beberapa detik. Kalau Chrome yang
-ditempel mati di tengah jalan, `ensurePage` membuang koneksi basi itu dan jatuh ke profil baru.
+ditempel mati di tengah jalan, `ensurePage` membuang koneksi basi itu dan jatuh ke profil baru. (Jalur lama —
+restart Chrome dengan flag debug — dihapus: flag-nya berulang kali tidak sampai ke Chrome di Mac pengguna, dan
+profil asli menyelesaikan masalah yang sama tanpa flag.)

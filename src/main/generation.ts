@@ -87,13 +87,7 @@ async function publicUrlFor(asset: Asset, signal: AbortSignal): Promise<string> 
 }
 
 function providerLabel(provider: VisualProvider): string {
-  return provider === 'gemini'
-    ? 'Gemini'
-    : provider === 'chatgpt-web'
-      ? 'ChatGPT Web'
-      : provider === 'pollinations'
-        ? 'Pollinations'
-        : 'Higgsfield'
+  return provider === 'gemini' ? 'Gemini' : provider === 'chatgpt-web' ? 'ChatGPT Web' : 'Higgsfield'
 }
 
 function imageProgress(ctx: TaskCtx, what: string, provider: VisualProvider) {
@@ -278,41 +272,15 @@ function startVisual(job: Job, build: (ctx: TaskCtx) => Promise<{ input: VisualI
   return runJob(job, 'visual', async (ctx) => {
     ctx.progress(0.04, 'Menyiapkan prompt')
     const { input, payload } = await build(ctx)
-    try {
-      return await runVisual(ctx, job, input, payload)
-    } catch (e) {
-      // Images (clip images and character sheets) fall back to the free Pollinations provider when
-      // the chosen one fails — a dead quota or a refused key degrades to a free image instead of an
-      // error. Videos have no free fallback, a cancelled job is never retried, and Pollinations
-      // itself is the last resort, so it throws as-is.
-      if (payload.target === 'clip-video' || payload.provider === 'pollinations' || ctx.signal.aborted) throw e
-      ctx.progress(0.08, `${providerLabel(payload.provider)} gagal, mencoba Pollinations (gratis)…`)
-      const fallbackModel = getVisualImageModel('pollinations', '')
-      const fallbackPayload: VisualPayload = { ...payload, provider: 'pollinations', model: fallbackModel.id }
-      // Pollinations takes no reference images, so the prompt's character descriptions in text are
-      // what keep the characters recognizable; the refs from the first attempt are dropped.
-      const fallbackInput: VisualInput = { model: fallbackModel, prompt: payload.prompt, aspect: input.aspect, refs: [] }
-      try {
-        return await runVisual(ctx, job, fallbackInput, fallbackPayload)
-      } catch (fallbackError) {
-        throw new Error(
-          `${providerLabel(payload.provider)} gagal (${(e as Error).message}); Pollinations juga gagal (${(fallbackError as Error).message}). Coba lagi sebentar.`
-        )
-      }
-    }
+    ctx.progress(0.08, `Mengirim ke ${providerLabel(payload.provider)}`)
+    const remoteId =
+      payload.target === 'clip-video'
+        ? await adapter(payload.provider).submitVideo(input, ctx.signal)
+        : await adapter(payload.provider).submitImage(input, ctx.signal)
+    ctx.setRemote(remoteId)
+    updateJobPayload(job.id, payload)
+    return finishVisual(ctx, job, remoteId, payload)
   })
-}
-
-/** Submits one visual request and saves its result; shared by the first try and the fallback. */
-async function runVisual(ctx: TaskCtx, job: Job, input: VisualInput, payload: VisualPayload): Promise<string> {
-  ctx.progress(0.08, `Mengirim ke ${providerLabel(payload.provider)}`)
-  const remoteId =
-    payload.target === 'clip-video'
-      ? await adapter(payload.provider).submitVideo(input, ctx.signal)
-      : await adapter(payload.provider).submitImage(input, ctx.signal)
-  ctx.setRemote(remoteId)
-  updateJobPayload(job.id, payload)
-  return finishVisual(ctx, job, remoteId, payload)
 }
 
 function updateJobPayload(jobId: string, payload: VisualPayload): void {
@@ -481,7 +449,7 @@ export function generateMissingTts(projectId: string): Job[] {
 export function resumeJobs(): void {
   for (const row of unfinishedJobs()) {
     const payload = JSON.parse(row.payload_json || '{}') as Partial<VisualPayload>
-    if ((row.provider === 'higgsfield' || row.provider === 'gemini' || row.provider === 'pollinations') && row.remote_id && payload.target) {
+    if ((row.provider === 'higgsfield' || row.provider === 'gemini') && row.remote_id && payload.target) {
       const job = getJob(row.id)!
       runJob(job, 'visual', (ctx) => finishVisual(ctx, job, row.remote_id, payload as VisualPayload))
     } else {
@@ -521,7 +489,7 @@ export async function estimateCredits(
   seconds = 5,
   resolution?: string | null
 ): Promise<CreditEstimate | null> {
-  if (provider === 'gemini' || provider === 'chatgpt-web' || provider === 'pollinations') return null
+  if (provider === 'gemini' || provider === 'chatgpt-web') return null
   const model = kind === 'image' ? getVisualImageModel(provider, modelId) : getVisualVideoModel(provider, modelId)
   if (!model) return null
   const key = `estimate:${provider}:${model.id}:${aspect}:${seconds}:${resolution ?? ''}`

@@ -367,9 +367,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
   const provider = settings.llmProvider
   const spec = LLM_PROVIDERS.find((p) => p.id === provider)!
   const status = statusOf(provider)
-  // Pollinations needs no key, so it is always configured; its picker badge is a fixed "ready" state.
-  const noKey = provider === 'pollinations'
-  const configured = noKey || !!status?.configured
+  const configured = !!status?.configured
   const [openPicker, setOpenPicker] = useState(false)
   const models = useModels(provider, configured && status?.lastOk !== false, provider === 'custom' ? settings.customBaseUrl : '')
   const model = settings.llmModels[provider]
@@ -380,10 +378,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
     name: p.name,
     note: p.note,
     logo: p.id,
-    status:
-      p.id === 'pollinations'
-        ? { provider: 'pollinations', configured: true, lastOk: true, lastMessage: 'Gratis · tanpa kunci', checkedAt: null, preview: null, unreadable: false }
-        : statusOf(p.id)
+    status: statusOf(p.id)
   }))
 
   return (
@@ -391,7 +386,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
       <SectionTitle
         icon={<Cpu className="size-5" />}
         title="Penyusun cerita (AI LLM)"
-        sub="Pilih satu penyedia untuk menyusun klip, naskah, dan pemeran. Kalau penyedia yang dipilih gagal (kuota habis, server sibuk, jaringan putus), aplikasi otomatis mencoba Pollinations gratis — kunci yang ditolak tetap dilaporkan, tidak pernah ditutupi."
+        sub="Pilih satu penyedia untuk menyusun klip, naskah, dan pemeran. Hanya penyedia yang dipilih yang dipakai."
       />
       <ProviderSelect
         value={provider}
@@ -402,15 +397,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
         }}
       />
       <Card key={provider}>
-        {provider === 'pollinations' ? (
-          <div className="flex flex-col gap-1">
-            <span className="text-sm font-semibold">Tanpa kunci</span>
-            <span className="text-sm leading-snug text-ink-2">
-              Pollinations gratis — tidak perlu daftar, tidak perlu kunci, langsung bisa dipakai. Kualitas naskahnya di bawah Gemini, tapi cukup untuk draf cerita dan jadi cadangan otomatis kalau penyedia utama gagal.
-            </span>
-          </div>
-        ) : (
-          <KeyForm
+        <KeyForm
           provider={provider}
           name={spec.name}
           status={status}
@@ -427,7 +414,6 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
             if (!model) setOpenPicker(true)
           }}
         />
-        )}
         {configured && status?.lastOk !== false && (
           <div className="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
             <span className="text-sm font-semibold">Model untuk menyusun cerita</span>
@@ -573,6 +559,7 @@ function HiggsfieldSection({ status, onChanged }: { status?: KeyStatus; onChange
  */
 function ChatGptWebSection() {
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
+  const [driver, setDriver] = useState<'cdp' | 'real-profile' | 'fresh' | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
@@ -581,7 +568,10 @@ function ChatGptWebSection() {
     void window.api.chatgptWeb
       .status()
       .then((s) => {
-        if (live) setLoggedIn(s.loggedIn)
+        if (live) {
+          setLoggedIn(s.loggedIn)
+          setDriver(s.driver)
+        }
       })
       .catch(() => {
         if (live) setLoggedIn(false)
@@ -606,17 +596,36 @@ function ChatGptWebSection() {
     }
   }
 
-  /** One click: the app restarts the user's Chrome with remote debugging, then logs in
-   * through the session that is already there. No manual Terminal command needed. */
+  /** One click: the app drives the user's real Chrome profile (already logged in, no bot check).
+   * Chrome closes once and its tabs come back inside the driver browser — no debug flag, no
+   * Terminal command. */
   const attachAndLogin = async (): Promise<void> => {
     setBusy(true)
-    setNote('Chrome ditutup lalu dibuka lagi (tab pulih kembali, tunggu sampai semenit)…')
+    setNote('Chrome kamu ditutup sebentar, lalu dibuka lagi sebagai browser kerja (tab pulih kembali)…')
     try {
       await window.api.chatgptWeb.attach()
       await login()
+      const s = await window.api.chatgptWeb.status()
+      setDriver(s.driver)
     } catch (e) {
       setBusy(false)
       setNote(errorText(e))
+    }
+  }
+
+  /** Closes the driver browser and hands the user's Chrome back. */
+  const release = async (): Promise<void> => {
+    setBusy(true)
+    setNote('Mengembalikan Chrome kamu…')
+    try {
+      await window.api.chatgptWeb.release()
+      setDriver(null)
+      setLoggedIn(false)
+      setNote('Chrome kamu sudah kembali. Klik "Pakai Chrome yang sudah login" lagi kalau mau membuat gambar.')
+    } catch (e) {
+      setNote(errorText(e))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -634,7 +643,8 @@ function ChatGptWebSection() {
         Gambar dibuat satu per satu di browser (butuh Google Chrome terpasang). Lembar karakter ikut dilampirkan supaya tokoh tetap sama.
         Hanya gambar — video AI tidak tersedia di penyedia ini, dan kalau ChatGPT menampilkan pemeriksaan bot atau tampilannya berubah,
         pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang. Kalau Chrome kamu sudah login, pakai tombol kedua: aplikasi
-        menutup dan membuka lagi Chrome kamu (tab pulih kembali), lalu memakai sesi login itu — tanpa verifikasi bot, tanpa perintah terminal.
+        memakai profil Chrome kamu sendiri sebagai browser kerja — sudah login, tanpa verifikasi bot, tanpa perintah terminal.
+        Selama browser kerja itu jalan, Chrome biasa tidak bisa dibuka; tombol ketiga mengembalikannya.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={() => void login()} disabled={busy}>
@@ -643,6 +653,11 @@ function ChatGptWebSection() {
         <Button onClick={() => void attachAndLogin()} disabled={busy}>
           Pakai Chrome yang sudah login
         </Button>
+        {driver === 'real-profile' && (
+          <Button onClick={() => void release()} disabled={busy}>
+            Kembalikan Chrome
+          </Button>
+        )}
         {note && <span className="text-[13px] text-ink-2">{note}</span>}
       </div>
     </Card>

@@ -28,13 +28,6 @@ export const LLM_PROVIDERS: { id: LlmProvider; name: string; note: string; link:
     note: 'Server apa pun yang kompatibel dengan OpenAI API, misalnya Ollama, LM Studio, vLLM, DeepSeek, atau xAI Grok.',
     link: null,
     linkLabel: ''
-  },
-  {
-    id: 'pollinations',
-    name: 'Pollinations (gratis)',
-    note: 'Tanpa kunci, tanpa login — teks gratis, jadi cadangan otomatis kalau penyedia utama gagal.',
-    link: null,
-    linkLabel: ''
   }
 ]
 

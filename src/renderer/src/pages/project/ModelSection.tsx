@@ -21,8 +21,7 @@ import { useEstimate, useEstimates } from '../../lib/useEstimate'
 const TAG_FILTERS: Record<VisualProvider, string[]> = {
   higgsfield: ['Rekomendasi', 'Referensi', 'GPT Image', 'Soul', 'Recraft', '4K'],
   gemini: ['Rekomendasi', 'Murah'],
-  'chatgpt-web': ['Rekomendasi'],
-  pollinations: ['Gratis']
+  'chatgpt-web': ['Rekomendasi']
 }
 
 /** Adds each model's estimated credits to its picker row once a Higgsfield key is known to exist. */
@@ -51,8 +50,6 @@ function Cost({
     return <span className="text-muted">Harga mengikuti pemakaian Gemini (bukan kredit), lihat tagihan di Google AI Studio.</span>
   if (provider === 'chatgpt-web')
     return <span className="text-muted">Gratis — pakai kuota free akun ChatGPT kamu, tanpa kunci API.</span>
-  if (provider === 'pollinations')
-    return <span className="text-muted">Gratis — tanpa kunci, tanpa login.</span>
   if (hasKey === false) return <span className="text-muted">Perkiraan kredit muncul setelah kunci Higgsfield diisi di Pengaturan.</span>
   if (value === undefined)
     return (
@@ -106,11 +103,6 @@ export function ModelSection({
         .status()
         .then((s) => setHasKey(s.loggedIn))
         .catch(() => setHasKey(false))
-      return
-    }
-    // Pollinations has no key at all: it is always ready.
-    if (provider === 'pollinations') {
-      setHasKey(true)
       return
     }
     void window.api.settings.keys().then((keys) => setHasKey(!!keys.find((k) => k.provider === provider)?.configured))
@@ -206,7 +198,7 @@ export function ModelSection({
         <Card icon={<Film className="size-4" />} title="Video AI">
           {!video ? (
             <p className="text-[12.5px] leading-snug text-ink-2">
-              {provider === 'chatgpt-web' ? 'ChatGPT Web' : 'Pollinations'} hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.
+              ChatGPT Web hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.
             </p>
           ) : (
             <>

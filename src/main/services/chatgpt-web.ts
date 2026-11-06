@@ -1,6 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
-import { createConnection } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -13,16 +12,18 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
  * image is a fresh chat with the prompt typed in, references attached, and the generated image
  * downloaded from the reply.
  *
- * Two ways to reach that browser. Preferred: attach to the user's own Chrome when it runs
- * with --remote-debugging-port=9222 (CDP). That Chrome is already logged in and already
- * trusted by bot checks, so there is no login and no verification wall; the app only opens
- * its own chatgpt.com tab there and never closes the user's browser. When the user already
- * has a chatgpt.com tab open, the app reuses that tab instead of opening a new one, so no
- * fresh navigation (and no fresh bot check) happens at all. Fallback: launch a
- * fresh profile in the installed Chrome, hardened with --disable-blink-features=
- * AutomationControlled plus an init script that hides navigator.webdriver, so bot checks
- * usually pass on their own after a few seconds; the session then persists in the profile
- * folder and later generations skip login.
+ * Three ways to reach that browser, in order. (1) Attach to the user's own Chrome when it already
+ * runs with --remote-debugging-port=9222 (CDP): already logged in, already trusted by bot checks, and
+ * the app never closes the user's browser. (2) Drive the user's REAL Chrome profile: the app closes
+ * the user's Chrome once, then launches Chrome itself with that same profile (tabs restored) — the
+ * session, cookies and history are all there, so ChatGPT sees its own trusted browser, no login, no
+ * bot check, and no debug flag is needed at all. The driver browser stays open while generations run;
+ * closing it (or quitting the app) relaunches the user's Chrome normally, so their browsing comes
+ * back. This path only starts from the "Pakai Chrome yang sudah login" button — a mere status check
+ * or a generation never closes the user's Chrome on its own. (3) Fallback: a fresh profile in the
+ * installed Chrome, hardened with --disable-blink-features=AutomationControlled plus an init script
+ * that hides navigator.webdriver, so bot checks usually pass on their own; the session then persists
+ * in the profile folder and later generations skip login.
  *
  * This is deliberately the fragile provider: if OpenAI changes the composer, shows a bot check,
  * or the account is logged out, generation fails with a plain message and the user retries after
@@ -37,8 +38,6 @@ const IMAGE_TIMEOUT_MS = 10 * 60 * 1000
  * Chrome (already logged in, already trusted by bot checks) instead of launching a fresh,
  * easily-flagged one. Set to an empty string to disable. */
 const CDP_URL = process.env.CHATGPT_WEB_CDP_URL ?? 'http://127.0.0.1:9222'
-/** How long to wait for the debug port after relaunching Chrome (ms). */
-const CDP_WAIT_MS = Number(process.env.CHATGPT_WEB_CDP_WAIT_MS ?? 30000)
 /** Hides the automation flag so bot checks treat the fresh-profile browser more like a normal one. */
 const STEALTH_INIT = `Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
@@ -46,6 +45,22 @@ Object.defineProperty(navigator, 'languages', { get: () => ['id-ID', 'id', 'en-U
 
 export function defaultProfileDir(): string {
   return join(app.getPath('userData'), 'chatgpt-web')
+}
+
+/**
+ * The user's real Chrome profile folder (where their login, cookies and history live). Overridable
+ * with CHATGPT_WEB_PROFILE_DIR for non-standard installs and tests. Null when the folder does not
+ * exist — Chrome has never run on this machine, or lives somewhere else.
+ */
+export function realProfileDir(): string | null {
+  if (process.env.CHATGPT_WEB_PROFILE_DIR) return process.env.CHATGPT_WEB_PROFILE_DIR
+  const dir =
+    process.platform === 'darwin'
+      ? join(homedir(), 'Library/Application Support/Google/Chrome')
+      : process.platform === 'win32'
+        ? join(process.env.LocalAppData ?? '', 'Google/Chrome/User Data')
+        : join(homedir(), '.config/google-chrome')
+  return existsSync(dir) ? dir : null
 }
 
 /** Chromium to drive: the user's installed Chrome when present, else an explicit path. */
@@ -60,8 +75,9 @@ let page: Page | null = null
 let starting: Promise<Page> | null = null
 let cdpBrowser: Browser | null = null
 let cdpContext: BrowserContext | null = null
-/** True when the page lives in the user's own Chrome: never close it on cleanup. */
-let attachedViaCdp = false
+/** Which browser the driver page lives in. 'cdp' and 'real-profile' both belong to the user. */
+type DriverKind = 'cdp' | 'real-profile' | 'fresh' | null
+let driverKind: DriverKind = null
 /** Generations run one at a time: the web UI has a single composer. */
 let queue: Promise<unknown> = Promise.resolve()
 
@@ -85,7 +101,12 @@ async function cdpContextOrNull(): Promise<BrowserContext | null> {
   }
 }
 
-async function ensurePage(profileDir: string, executablePath?: string): Promise<Page> {
+/**
+ * The page generations run in. Order: the page already running, the user's own Chrome over CDP,
+ * the user's real Chrome profile (only when allowRealProfile — starting it closes the user's
+ * Chrome, so a mere status check or a generation never does it on its own), then a fresh profile.
+ */
+async function ensurePage(profileDir: string, executablePath?: string, allowRealProfile = true): Promise<Page> {
   if (page && !page.isClosed()) return page
   if (!starting) {
     starting = (async () => {
@@ -94,7 +115,7 @@ async function ensurePage(profileDir: string, executablePath?: string): Promise<
       if (cdp) {
         try {
           context = cdp
-          attachedViaCdp = true
+          driverKind = 'cdp'
           // Prefer a chatgpt.com tab the user already has open: it is already logged in and
           // already past any bot check, so reusing it means no fresh navigation and no new
           // verification wall. Only open a new tab when there is none.
@@ -106,10 +127,49 @@ async function ensurePage(profileDir: string, executablePath?: string): Promise<
           return p
         } catch {
           // The attached Chrome went away (e.g. it was restarted): drop the stale
-          // connection and fall through to the fresh-profile launch below.
+          // connection and fall through to the launches below.
           cdpContext = null
           cdpBrowser = null
-          attachedViaCdp = false
+          driverKind = null
+        }
+      }
+      // Second choice: the user's REAL Chrome profile. Same login, same cookies, same history —
+      // ChatGPT sees its own trusted browser, so there is no login wall and no bot check, and no
+      // debug flag is needed at all. The user's Chrome must be closed first (one profile, one
+      // Chrome at a time); its tabs come back with --restore-last-session.
+      if (allowRealProfile) {
+        const realDir = realProfileDir()
+        if (realDir) {
+          if (await isChromeRunning()) {
+            await quitChrome()
+            const gone = await waitFor(async () => !(await isChromeRunning()), 15000)
+            if (!gone) {
+              starting = null
+              throw new Error('Chrome tidak mau tertutup. Tutup Chrome secara manual, lalu coba lagi.')
+            }
+            // Let the old instance fully release its singleton lock before relaunching.
+            await new Promise((r) => setTimeout(r, 1500))
+          }
+          try {
+            context = await chromium.launchPersistentContext(realDir, {
+              headless: false,
+              viewport: { width: 1280, height: 900 },
+              // Never send loopback traffic through a proxy (the test mock, and any local page).
+              args: ['--restore-last-session', '--proxy-bypass-list=<-loopback>', '--disable-blink-features=AutomationControlled'],
+              ...launchOptions(executablePath)
+            })
+          } catch (e) {
+            starting = null
+            throw new Error(
+              'Tidak bisa membuka Chrome dengan profil kamu. Coba tutup Chrome secara manual, lalu coba lagi. ' +
+                `(${(e as Error).message})`
+            )
+          }
+          driverKind = 'real-profile'
+          await context.addInitScript(STEALTH_INIT).catch(() => {})
+          const p = context.pages()[0] ?? (await context.newPage())
+          page = p
+          return p
         }
       }
       // Fallback: a fresh profile in the user's installed Chrome, hardened against bot checks.
@@ -129,6 +189,7 @@ async function ensurePage(profileDir: string, executablePath?: string): Promise<
             `(${(e as Error).message})`
         )
       }
+      driverKind = 'fresh'
       await context.addInitScript(STEALTH_INIT).catch(() => {})
       const p = context.pages()[0] ?? (await context.newPage())
       page = p
@@ -153,26 +214,31 @@ async function isLoggedIn(p: Page): Promise<boolean> {
   }
 }
 
-export async function chatGptWebStatus(profileDir = defaultProfileDir(), executablePath?: string): Promise<{ loggedIn: boolean }> {
+export async function chatGptWebStatus(
+  profileDir = defaultProfileDir(),
+  executablePath?: string
+): Promise<{ loggedIn: boolean; driver: Exclude<DriverKind, null> | null }> {
   // In the user's own Chrome, look at the tabs they already have; never open a new tab just to check.
   if ((!page || page.isClosed()) && !starting) {
     const cdp = await cdpContextOrNull()
     if (cdp) {
       const tabs = cdp.pages().filter((t) => t.url().startsWith(CHATGPT_URL))
       for (const t of tabs) {
-        if (await isLoggedIn(t)) return { loggedIn: true }
+        if (await isLoggedIn(t)) return { loggedIn: true, driver: 'cdp' }
       }
-      return { loggedIn: false }
+      return { loggedIn: false, driver: 'cdp' }
     }
   }
-  const p = await ensurePage(profileDir, executablePath)
+  // A status check never closes the user's Chrome: the real-profile browser only starts from the
+  // "Pakai Chrome yang sudah login" button, never on its own.
+  const p = await ensurePage(profileDir, executablePath, false)
   if (!p.url().startsWith(CHATGPT_URL)) await p.goto(CHATGPT_URL, { waitUntil: 'domcontentloaded' }).catch(() => {})
-  return { loggedIn: await isLoggedIn(p) }
+  return { loggedIn: await isLoggedIn(p), driver: driverKind }
 }
 
 /** Opens the browser for the user to log in, and waits until the composer appears. */
 export async function chatGptWebLogin(profileDir = defaultProfileDir(), executablePath?: string): Promise<{ loggedIn: boolean }> {
-  const p = await ensurePage(profileDir, executablePath)
+  const p = await ensurePage(profileDir, executablePath, false)
   await p.goto(CHATGPT_URL, { waitUntil: 'domcontentloaded' }).catch(() => {})
   const started = Date.now()
   for (;;) {
@@ -257,7 +323,9 @@ export async function chatGptWebImage(
   executablePath?: string
 ): Promise<ChatGptWebImage> {
   const run = queue.then(async () => {
-    const p = await ensurePage(profileDir, executablePath)
+    // A generation never closes the user's Chrome on its own: it reuses the driver browser when
+    // one is already running (e.g. started from Settings), else CDP, else a fresh profile.
+    const p = await ensurePage(profileDir, executablePath, false)
     await p.goto(CHATGPT_URL, { waitUntil: 'domcontentloaded' }).catch(() => {})
     if (!(await isLoggedIn(p))) {
       throw new Error('Belum login ChatGPT. Buka Pengaturan › ChatGPT Web, login dulu, lalu coba lagi.')
@@ -298,20 +366,24 @@ export async function chatGptWebImage(
   return run
 }
 
-export async function closeChatGptWeb(): Promise<void> {
+export async function closeChatGptWeb(restore = true): Promise<void> {
   const c = context
-  const wasCdp = attachedViaCdp
+  const kind = driverKind
   context = null
   page = null
   starting = null
-  attachedViaCdp = false
+  driverKind = null
   cdpContext = null
   cdpBrowser = null
-  if (wasCdp) {
+  if (kind === 'cdp') {
     // The browser belongs to the user: only drop our connection, never close their Chrome.
     return
   }
   if (c) await c.close().catch(() => {})
+  if (kind === 'real-profile' && restore) {
+    // The driver was the user's own Chrome profile: hand their browser back, tabs restored.
+    launchChromeNormal()
+  }
 }
 
 /** Runs a command and resolves no matter the outcome (quit helpers are best-effort). */
@@ -377,118 +449,41 @@ function findChromeWindows(): string | null {
   return candidates.find((c) => existsSync(c)) ?? null
 }
 
-function findChromeDarwin(): string | null {
-  const candidates = [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
-  ]
-  return candidates.find((c) => existsSync(c)) ?? null
-}
-
-async function launchChromeWithDebugging(attempt: number): Promise<void> {
-  const args = ['--remote-debugging-port=9222', '--restore-last-session']
+/** Reopens the user's Chrome normally (no debug flag, tabs restored) after the driver held its profile. */
+function launchChromeNormal(): void {
+  const args = ['--restore-last-session']
   if (process.platform === 'darwin') {
-    if (attempt === 1) {
-      // `open -n` forces a NEW instance, so the flags cannot be dropped by handing off
-      // to an already-running Chrome (the usual way a relaunch silently loses the flag).
-      launchDetached('open', ['-n', '-a', 'Google Chrome', '--args', ...args])
-    } else {
-      // Fallback: the binary directly, so the flags are delivered no matter what.
-      const exe = findChromeDarwin()
-      if (!exe) throw new Error('Google Chrome tidak ketemu di /Applications. Pasang Chrome dulu, lalu coba lagi.')
-      launchDetached(exe, args)
-    }
+    launchDetached('open', ['-a', 'Google Chrome', '--args', ...args])
   } else if (process.platform === 'win32') {
     const exe = findChromeWindows()
-    if (!exe) throw new Error('Google Chrome tidak ketemu di lokasi standar. Pasang Chrome dulu, lalu coba lagi.')
-    launchDetached(exe, args)
+    if (exe) launchDetached(exe, args)
   } else {
     launchDetached('google-chrome', args)
   }
 }
 
-async function waitForCdp(timeoutMs = CDP_WAIT_MS): Promise<boolean> {
-  return waitFor(async () => {
-    try {
-      const res = await fetch('http://127.0.0.1:9222/json/version')
-      return res.ok
-    } catch {
-      return false
-    }
-  }, timeoutMs)
-}
-
-/** Raw TCP check: tells "Chrome runs but without the debug flag" apart from "Chrome is down". */
-async function isTcpPortOpen(port: number, host = '127.0.0.1', timeoutMs = 1500): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = createConnection({ port, host })
-    const done = (ok: boolean): void => {
-      try {
-        socket.destroy()
-      } catch {
-        // Already closed.
-      }
-      resolve(ok)
-    }
-    socket.once('connect', () => done(true))
-    socket.once('error', () => done(false))
-    socket.setTimeout(timeoutMs, () => done(false))
-  })
-}
-
-/** True when the running Chrome was actually started with the debug flag (from its command line). */
-async function chromeHasDebugFlag(): Promise<boolean> {
-  return new Promise((resolve) => {
-    execFile('ps', ['-ax', '-o', 'args'], (err, stdout) => {
-      if (err) return resolve(false)
-      resolve(stdout.split('\n').some((l) => l.includes('remote-debugging-port')))
-    })
-  })
-}
-
 /**
- * Restarts the user's Chrome with remote debugging, so the driver can attach to the session
- * that is already logged in. Tabs come back (--restore-last-session). The user does nothing
- * by hand: one click in Settings does the whole restart and waits until the debug port answers.
- *
- * Two hard-won details: after the old Chrome is gone the code waits a moment before
- * relaunching (the singleton lock is released a beat after the main process exits — launching
- * too early hands off to the dying instance and the debug flag never lands), and the whole
- * restart is tried once more with a longer settle when the port does not answer the first time.
- * The second try launches differently (direct binary instead of `open -n`), so a quirk in one
- * launch path does not doom both tries.
+ * "Pakai Chrome yang sudah login": starts the driver on the user's REAL Chrome profile, so ChatGPT
+ * sees its own trusted browser — already logged in, no bot check, no debug flag. The user's Chrome
+ * is closed once and its tabs come back inside the driver browser; closing the driver (or the
+ * "Kembalikan Chrome" button) hands Chrome back. When the user already runs Chrome with remote
+ * debugging, that CDP session is used instead and nothing is restarted.
  */
 export async function chatGptWebAttachChrome(): Promise<{ attached: boolean }> {
-  await closeChatGptWeb()
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    if (await isChromeRunning()) {
-      await quitChrome()
-      const gone = await waitFor(async () => !(await isChromeRunning()), 15000)
-      if (!gone) throw new Error('Chrome tidak mau tertutup. Tutup Chrome secara manual, lalu coba lagi.')
-    }
-    // Let the old instance fully release its singleton lock before relaunching.
-    await new Promise((r) => setTimeout(r, attempt === 1 ? 1500 : 3000))
-    await launchChromeWithDebugging(attempt)
-    if (await waitForCdp()) return { attached: true }
+  await closeChatGptWeb(false)
+  const p = await ensurePage(defaultProfileDir(), undefined, true)
+  if (driverKind === 'fresh') {
+    // No CDP Chrome and no real profile folder: the fresh profile is not logged in, so silently
+    // using it would break the button's promise.
+    await closeChatGptWeb(false)
+    throw new Error('Profil Chrome tidak ditemukan. Buka Google Chrome sekali dan login ChatGPT di sana, lalu coba lagi.')
   }
-  const running = await isChromeRunning()
-  const tcp = await isTcpPortOpen(9222)
-  const flagged = await chromeHasDebugFlag()
-  if (!running) {
-    throw new Error('Chrome tidak jalan setelah dibuka lagi. Buka Chrome secara manual, lalu klik tombol ini lagi.')
-  }
-  if (!tcp && !flagged) {
-    throw new Error(
-      'Chrome sudah jalan, tapi port debugging-nya tidak aktif — flag debug tidak sampai ke Chrome ' +
-        '(perintah Chrome yang jalan tidak mengandung --remote-debugging-port). ' +
-        'Tutup Chrome secara manual, lalu klik tombol ini lagi.'
-    )
-  }
-  if (!tcp && flagged) {
-    throw new Error(
-      'Chrome jalan dengan flag debug, tapi port 9222 tetap tertutup — kemungkinan port diblokir atau ' +
-        'dipakai program lain. Coba restart Mac, lalu klik tombol ini lagi.'
-    )
-  }
-  throw new Error('Port debugging sudah terbuka tapi belum menjawab. Tunggu sebentar lalu coba lagi.')
+  await p.goto(CHATGPT_URL, { waitUntil: 'domcontentloaded' }).catch(() => {})
+  return { attached: true }
+}
+
+/** Closes the driver browser and hands the user's Chrome back. */
+export async function chatGptWebRelease(): Promise<{ released: boolean }> {
+  await closeChatGptWeb(true)
+  return { released: true }
 }

@@ -11,9 +11,7 @@ export const PROVIDER_NAMES: Record<ApiProvider, string> = {
   elevenlabs: 'ElevenLabs',
   openrouter: 'OpenRouter',
   groq: 'Groq',
-  custom: 'endpoint custom',
-  // No key is ever stored for Pollinations; the name is only used in messages and the model list.
-  pollinations: 'Pollinations'
+  custom: 'endpoint custom'
 }
 
 interface SecretRow {
