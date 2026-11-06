@@ -14,15 +14,19 @@ import type { ModelOption, VisualProvider } from './types'
 
 /**
  * Who draws the clip images and animates them. Higgsfield is the original provider; Gemini
- * (Nano Banana images + Omni Flash video, through the Interactions API) is the second one, and
- * any later provider only needs a catalog here plus an adapter in main/services/visual.ts.
+ * (Nano Banana images + Omni Flash video, through the Interactions API) is the second one, ChatGPT Web
+ * (GPT Image in the browser) the third, and Pollinations (free FLUX images, no key, no login) the
+ * fourth — it is also the automatic fallback when the chosen provider fails, so a dead quota or a
+ * refused key degrades to a free image instead of an error. Any later provider only needs a catalog
+ * here plus an adapter in main/services/visual.ts.
  */
 export type { VisualProvider } from './types'
 
 export const VISUAL_PROVIDERS: { id: VisualProvider; label: string; note: string }[] = [
   { id: 'higgsfield', label: 'Higgsfield', note: '14 model gambar, 34 model video · bayar per kredit' },
   { id: 'gemini', label: 'Gemini', note: 'Nano Banana + Omni Flash · pakai kunci Gemini yang sama, bayar per pemakaian' },
-  { id: 'chatgpt-web', label: 'ChatGPT Web', note: 'GPT Image lewat browser · kuota free akun ChatGPT, tanpa kunci API' }
+  { id: 'chatgpt-web', label: 'ChatGPT Web', note: 'GPT Image lewat browser · kuota free akun ChatGPT, tanpa kunci API' },
+  { id: 'pollinations', label: 'Pollinations', note: 'Gratis · tanpa kunci, tanpa login — Flux, jadi jaring pengaman kalau penyedia utama gagal' }
 ]
 
 /** One image or video model from either provider, in the shape pickers and generation share. */
@@ -172,11 +176,38 @@ const CHATGPT_WEB_IMAGE_MODELS: VisualModel[] = [
 
 export const DEFAULT_CHATGPT_WEB_IMAGE_MODEL = 'gpt-image-1-web'
 
+/**
+ * Pollinations image model: FLUX.1-schnell, free, no key, no login, no browser. The prompt carries
+ * the character descriptions in text — Pollinations takes reference images only as public URLs, which
+ * the app cannot provide for local sheets, so maxRefs is 0 and consistency comes from the text.
+ * The images can carry a small pollinations.ai watermark even with nologo=true.
+ */
+const POLLINATIONS_IMAGE_MODELS: VisualModel[] = [
+  {
+    id: 'pollinations-flux',
+    provider: 'pollinations',
+    name: 'Flux Schnell (gratis)',
+    family: 'pollinations',
+    kind: 'image',
+    description: 'Gambar gratis tanpa kunci dan tanpa login · kualitas bagus untuk kartun dan storyboard',
+    tags: ['Gratis'],
+    inputMode: 'none',
+    maxRefs: 0,
+    promptLimit: 4000,
+    durations: null,
+    resolutions: null
+  }
+]
+
+export const DEFAULT_POLLINATIONS_IMAGE_MODEL = 'pollinations-flux'
+
 export const DEFAULT_VISUAL_MODELS: Record<VisualProvider, { image: string; video: string }> = {
   higgsfield: { image: HF_DEFAULT_IMAGE_MODEL, video: HF_DEFAULT_VIDEO_MODEL },
   gemini: { image: DEFAULT_GEMINI_IMAGE_MODEL, video: DEFAULT_GEMINI_VIDEO_MODEL },
   // ChatGPT Web has no video model; the empty video id means "no video for this provider".
-  'chatgpt-web': { image: DEFAULT_CHATGPT_WEB_IMAGE_MODEL, video: '' }
+  'chatgpt-web': { image: DEFAULT_CHATGPT_WEB_IMAGE_MODEL, video: '' },
+  // Pollinations is image-only too.
+  pollinations: { image: DEFAULT_POLLINATIONS_IMAGE_MODEL, video: '' }
 }
 
 function fromHf(m: HfModel): VisualModel {
@@ -199,13 +230,14 @@ function fromHf(m: HfModel): VisualModel {
 export function visualImageModels(provider: VisualProvider): VisualModel[] {
   if (provider === 'gemini') return GEMINI_IMAGE_MODELS
   if (provider === 'chatgpt-web') return CHATGPT_WEB_IMAGE_MODELS
+  if (provider === 'pollinations') return POLLINATIONS_IMAGE_MODELS
   return HF_IMAGE_MODELS.map(fromHf)
 }
 
 export function visualVideoModels(provider: VisualProvider): VisualModel[] {
   if (provider === 'gemini') return GEMINI_VIDEO_MODELS
-  // ChatGPT Web is image-only.
-  if (provider === 'chatgpt-web') return []
+  // ChatGPT Web and Pollinations are image-only.
+  if (provider === 'chatgpt-web' || provider === 'pollinations') return []
   return HF_VIDEO_MODELS.map(fromHf)
 }
 

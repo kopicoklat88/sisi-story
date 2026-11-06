@@ -131,7 +131,41 @@ function geminiAdapter(): VisualAdapter {
 export function adapter(provider: VisualProvider): VisualAdapter {
   if (provider === 'gemini') return geminiAdapter()
   if (provider === 'chatgpt-web') return chatGptWebAdapter()
+  if (provider === 'pollinations') return pollinationsAdapter()
   return higgsfieldAdapter()
+}
+
+/**
+ * Pollinations: free FLUX images, no key, no login, no browser. The image URL itself is the job id,
+ * so a restart can resume by re-fetching the same URL (the service caches by URL, so the same image
+ * comes back). References cannot be sent — Pollinations takes them only as public URLs — so the
+ * prompt's character descriptions in text are what keep a character recognizable. The images can
+ * carry a small pollinations.ai watermark even with nologo=true.
+ */
+function pollinationsAdapter(): VisualAdapter {
+  const sizeFor = (aspect: AspectRatio): { width: number; height: number } =>
+    aspect === '9:16' ? { width: 720, height: 1280 } : { width: 1280, height: 720 }
+  const urlFor = (input: VisualInput): string => {
+    const { width, height } = sizeFor(input.aspect)
+    const seed = Math.floor(Math.random() * 1_000_000)
+    return `https://image.pollinations.ai/prompt/${encodeURIComponent(input.prompt)}?width=${width}&height=${height}&model=flux&nologo=true&seed=${seed}`
+  }
+  return {
+    submitImage: (input) => Promise.resolve(urlFor(input)),
+    submitVideo: () => Promise.reject(new Error('Pollinations hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')),
+    waitForResult: async (remoteId, kind, onTick, signal) => {
+      if (kind === 'video') throw new Error('Pollinations hanya bisa membuat gambar.')
+      onTick('in_progress', 0)
+      const { bytes, contentType } = await downloadTo(remoteId, signal)
+      if (!/^image\//.test(contentType) && bytes.length < 1000)
+        throw new Error('Pollinations tidak mengirim gambar. Coba lagi sebentar.')
+      return { images: [{ bytes, mime: contentType || 'image/jpeg' }] }
+    },
+    cancel: async () => {},
+    // Free, no estimate endpoint.
+    estimate: async () => null,
+    testCredentials: async () => ({ ok: true, message: 'Gratis · tanpa kunci, tanpa login' })
+  }
 }
 
 // ChatGPT Web runs live in the module (submit and wait run on different adapter instances),

@@ -35,13 +35,18 @@ function compat(provider: CompatProvider, keyOverride?: string | null, baseOverr
     return { provider, base: 'https://openrouter.ai/api/v1', key, headers: { 'X-OpenRouter-Title': 'Bang Story', 'X-Title': 'Bang Story' } }
   }
   if (provider === 'groq') return { provider, base: 'https://api.groq.com/openai/v1', key, headers: {} }
+  if (provider === 'pollinations')
+    // Free text API, no key. Chat completions live under /v1; the model list is one level up
+    // (/openai/models), so pollinationsModels fetches that URL directly instead of call().
+    return { provider, base: 'https://text.pollinations.ai/openai/v1', key: null, headers: {} }
   const base = (baseOverride ?? getSettings().customBaseUrl).trim().replace(/\/+$/, '')
   if (!base) throw new LlmError('Alamat endpoint custom belum diisi. Buka Pengaturan untuk menambahkannya.')
   return { provider, base, key, headers: {} }
 }
 
 function requireKey(c: Compat): void {
-  if (c.provider !== 'custom' && !c.key)
+  // Pollinations needs no key; custom endpoints may run keyless on localhost.
+  if (c.provider !== 'custom' && c.provider !== 'pollinations' && !c.key)
     throw new LlmError(`Kunci API ${PROVIDER_NAMES[c.provider]} belum diatur. Buka Pengaturan untuk menambahkannya.`)
 }
 
@@ -153,6 +158,21 @@ async function customModels(): Promise<ModelOption[]> {
     .map((m) => ({ id: m.id, name: m.id, description: m.owned_by ? `Pemilik: ${m.owned_by}` : undefined, tags: [] }))
 }
 
+/**
+ * Pollinations lists its text models at /openai/models (no /v1), while chat completions live under
+ * /openai/v1 — so this fetches the list URL directly instead of going through call().
+ */
+async function pollinationsModels(): Promise<ModelOption[]> {
+  const res = await fetch('https://text.pollinations.ai/openai/models')
+  if (!res.ok) throw new LlmError(`Pollinations tidak bisa dihubungi (HTTP ${res.status}). Coba lagi sebentar.`, res.status)
+  const r = (await res.json()) as { data?: { id: string }[] }
+  const list = (r.data ?? []).map((m) => m.id).filter(Boolean)
+  if (!list.length) throw new LlmError('Pollinations tidak mengembalikan daftar model. Coba lagi sebentar.')
+  return list.map(
+    (id): ModelOption => ({ id, name: id, description: 'Gratis · tanpa kunci, tanpa login', tags: ['Gratis'] })
+  )
+}
+
 async function fetchModels(source: ModelSource): Promise<ModelOption[]> {
   switch (source) {
     case 'gemini':
@@ -165,6 +185,8 @@ async function fetchModels(source: ModelSource): Promise<ModelOption[]> {
       return openRouterModels()
     case 'groq':
       return groqModels()
+    case 'pollinations':
+      return pollinationsModels()
     case 'custom':
       return customModels()
   }
@@ -187,6 +209,15 @@ export async function listModels(source: ModelSource, refresh = false): Promise<
 
 export async function testLlm(provider: LlmProvider, key?: string | null, baseUrl?: string): Promise<KeyTestResult> {
   if (provider === 'gemini') return gemini.testKey(key ?? undefined)
+  if (provider === 'pollinations') {
+    // No key to test; listing the models proves the free service answers.
+    try {
+      const models = await pollinationsModels()
+      return { ok: true, message: `Terhubung · gratis, tanpa kunci · ${models.length} model tersedia` }
+    } catch (e) {
+      return { ok: false, message: (e as Error).message }
+    }
+  }
   try {
     const c = compat(provider, key, baseUrl)
     requireKey(c)
@@ -300,10 +331,44 @@ export function activeLlm(): ActiveLlm {
   return { provider: s.llmProvider, model: s.llmModels[s.llmProvider]?.trim() ?? '' }
 }
 
-/** Generates a JSON object that follows `schema` with whichever LLM the user made active. */
+/**
+ * Errors that a fallback cannot fix: a rejected or missing key, or no model picked. Everything else
+ * (quota, rate limit, server error, network failure, bad JSON) is worth one automatic retry on the
+ * free Pollinations service instead of failing the whole script.
+ */
+function isAuthError(e: unknown): boolean {
+  if (e instanceof LlmError) {
+    if (e.status === 401 || e.status === 403) return true
+    if (/belum diatur|Pilih model/i.test(e.message)) return true
+    return false
+  }
+  return /Kunci .* ditolak|API key not valid|API_KEY_INVALID|PERMISSION_DENIED/i.test((e as Error)?.message ?? '')
+}
+
+/**
+ * Generates a JSON object that follows `schema` with whichever LLM the user made active. When that
+ * provider fails for a reason a fallback can fix (quota, overload, network), the request is retried
+ * once on the free Pollinations service, so a dead quota or a flaky connection degrades to a free
+ * script instead of an error. A rejected key is never papered over: it throws as-is.
+ */
 export async function generateJson<T>(req: { system: string; prompt: string; schema: object; name: string; signal?: AbortSignal }): Promise<T> {
   const { provider, model } = activeLlm()
   if (!model) throw new LlmError(`Pilih model ${PROVIDER_NAMES[provider]} dulu di Pengaturan › Kunci API dan model.`)
-  if (provider === 'gemini') return (await gemini.generateJson(model, req.system, req.prompt, req.schema)) as T
-  return (await chatJson(compat(provider), model, req.system, req.prompt, req.schema, req.name, req.signal)) as T
+  const runPrimary = async (): Promise<T> => {
+    if (provider === 'gemini') return (await gemini.generateJson(model, req.system, req.prompt, req.schema)) as T
+    return (await chatJson(compat(provider), model, req.system, req.prompt, req.schema, req.name, req.signal)) as T
+  }
+  try {
+    return await runPrimary()
+  } catch (e) {
+    if (provider === 'pollinations' || req.signal?.aborted || isAuthError(e)) throw e
+    const fallbackModel = getSettings().llmModels.pollinations?.trim() || 'openai-fast'
+    try {
+      return (await chatJson(compat('pollinations'), fallbackModel, req.system, req.prompt, req.schema, req.name, req.signal)) as T
+    } catch (fallbackError) {
+      throw new LlmError(
+        `${PROVIDER_NAMES[provider]} gagal (${(e as Error).message}); Pollinations gratis juga gagal (${(fallbackError as Error).message}). Coba lagi sebentar.`
+      )
+    }
+  }
 }

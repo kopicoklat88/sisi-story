@@ -99,6 +99,17 @@ render ASS ekspor sekaligus — terlalu besar untuk satu perubahan. Gerak kamera
 Napas) sudah masuk dan berlaku di pratinjau dan ekspor; tipografi kinetik tetap ide lanjutan di
 `docs/masalah-diketahui.md`.
 
+### Pollinations jadi cadangan otomatis (bukan penyedia utama)
+Gemini gagal berulang karena kuota habis dan server sibuk, sementara ChatGPT Web ribet (login browser, verifikasi
+bot, attach Chrome). Alih-alih menambah penyedia berbayar lagi, alurnya diubah: **kegagalan menurun ke layanan
+gratis, bukan ke error.** Gambar yang gagal di penyedia pilihan dicoba sekali lagi lewat Pollinations (FLUX,
+gratis, tanpa kunci/login/browser); naskah yang gagal dicoba sekali lagi lewat teks Pollinations. Cadangan hanya
+untuk kegagalan yang bisa diperbaiki cadangan (kuota, overload, jaringan, JSON jelek) — kunci yang ditolak tidak
+pernah ditutupi, dan pembatalan pengguna tidak pernah dicoba ulang. Pollinations sengaja TIDAK dijadikan bawaan:
+kualitas gambarnya di bawah Nano Banana dan ia tidak menerima gambar referensi, jadi konsistensi tokoh mengandalkan
+teks saja; penyedia berbayar tetap bawaan untuk kualitas, Pollinations hanya jaring pengaman. Endpoint-nya punya
+keanehan versi: daftar model teks di `/openai/models` (tanpa `/v1`), chat completions di `/openai/v1/chat/completions`.
+
 ### ChatGPT Web disetir lewat browser, bukan API
 ChatGPT web tidak punya API gambar publik, jadi satu-satunya "pointing" ke kuota free-nya adalah otomasi browser.
 Driver memakai Playwright (`playwright-core`, tanpa unduh browser) dengan `channel: 'chrome'` — Chrome pengguna

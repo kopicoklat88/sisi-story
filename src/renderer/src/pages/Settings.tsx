@@ -367,7 +367,9 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
   const provider = settings.llmProvider
   const spec = LLM_PROVIDERS.find((p) => p.id === provider)!
   const status = statusOf(provider)
-  const configured = !!status?.configured
+  // Pollinations needs no key, so it is always configured; its picker badge is a fixed "ready" state.
+  const noKey = provider === 'pollinations'
+  const configured = noKey || !!status?.configured
   const [openPicker, setOpenPicker] = useState(false)
   const models = useModels(provider, configured && status?.lastOk !== false, provider === 'custom' ? settings.customBaseUrl : '')
   const model = settings.llmModels[provider]
@@ -378,7 +380,10 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
     name: p.name,
     note: p.note,
     logo: p.id,
-    status: statusOf(p.id)
+    status:
+      p.id === 'pollinations'
+        ? { provider: 'pollinations', configured: true, lastOk: true, lastMessage: 'Gratis · tanpa kunci', checkedAt: null, preview: null, unreadable: false }
+        : statusOf(p.id)
   }))
 
   return (
@@ -386,7 +391,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
       <SectionTitle
         icon={<Cpu className="size-5" />}
         title="Penyusun cerita (AI LLM)"
-        sub="Pilih satu penyedia untuk menyusun klip, naskah, dan pemeran. Hanya penyedia yang dipilih yang dipakai."
+        sub="Pilih satu penyedia untuk menyusun klip, naskah, dan pemeran. Kalau penyedia yang dipilih gagal (kuota habis, server sibuk, jaringan putus), aplikasi otomatis mencoba Pollinations gratis — kunci yang ditolak tetap dilaporkan, tidak pernah ditutupi."
       />
       <ProviderSelect
         value={provider}
@@ -397,7 +402,15 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
         }}
       />
       <Card key={provider}>
-        <KeyForm
+        {provider === 'pollinations' ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold">Tanpa kunci</span>
+            <span className="text-sm leading-snug text-ink-2">
+              Pollinations gratis — tidak perlu daftar, tidak perlu kunci, langsung bisa dipakai. Kualitas naskahnya di bawah Gemini, tapi cukup untuk draf cerita dan jadi cadangan otomatis kalau penyedia utama gagal.
+            </span>
+          </div>
+        ) : (
+          <KeyForm
           provider={provider}
           name={spec.name}
           status={status}
@@ -414,6 +427,7 @@ function LlmSection({ settings, statusOf, onChanged, onSettings }: { settings: A
             if (!model) setOpenPicker(true)
           }}
         />
+        )}
         {configured && status?.lastOk !== false && (
           <div className="flex flex-col gap-1.5 border-t border-dashed border-line pt-4">
             <span className="text-sm font-semibold">Model untuk menyusun cerita</span>

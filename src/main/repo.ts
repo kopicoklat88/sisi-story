@@ -13,6 +13,7 @@ import type {
   JobStatus,
   NewProjectInput,
   Project,
+  VisualProvider,
   ProjectBundle,
   ProjectSnapshot,
   ProjectSummary
@@ -44,7 +45,9 @@ const toProject = (r: Row): Project => ({
   styleId: r.style_id,
   ttsProvider: r.tts_provider,
   ttsVoice: r.tts_voice,
-  visualProvider: r.visual_provider === 'gemini' ? 'gemini' : 'higgsfield',
+  visualProvider: (['higgsfield', 'gemini', 'chatgpt-web', 'pollinations'].includes(r.visual_provider)
+    ? r.visual_provider
+    : 'higgsfield') as VisualProvider,
   imageModel: r.image_model,
   videoModel: r.video_model,
   videoResolution: r.video_resolution ?? null,

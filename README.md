@@ -140,10 +140,11 @@ Setelah aplikasi terbuka, isi kunci API di **Pengaturan › Layanan AI dan kunci
 
 ## Kunci API
 
-Setiap bagian (penyusun cerita, suara narator) punya satu dropdown penyedia. Hanya penyedia yang dipilih yang dipakai. Kunci dienkripsi dengan Windows DPAPI (`safeStorage`) dan hanya dikirim ke layanannya masing-masing.
+Setiap bagian (penyusun cerita, suara narator) punya satu dropdown penyedia. Hanya penyedia yang dipilih yang dipakai, kecuali kalau penyedia itu gagal — saat itu aplikasi otomatis mencoba Pollinations gratis sebagai cadangan (gambar dan naskah), supaya kerjaan jalan terus. Kunci dienkripsi dengan Windows DPAPI (`safeStorage`) dan hanya dikirim ke layanannya masing-masing.
 
 | Layanan | Dipakai untuk | Wajib |
 |---|---|---|
+| [Pollinations](https://pollinations.ai) (gratis, tanpa kunci, tanpa login) | Gambar (Flux) dan naskah — juga cadangan otomatis kalau penyedia utama gagal | Tidak |
 | [Higgsfield](https://higgsfield.ai) (satu kunci dari tombol **Copy API key**, format `KEY_ID:KEY_SECRET`) | Gambar, lembar karakter, video AI | Ya, kecuali memakai Gemini sebagai penyedia visual |
 | Penyusun cerita, pilih satu: Google Gemini, OpenRouter, Groq, atau endpoint custom yang kompatibel dengan OpenAI | Naskah, rencana visual, pemeran | Ya, salah satu |
 | Google Gemini | Suara narator Gemini TTS; gambar (Nano Banana) dan video (Omni Flash) kalau dipilih sebagai penyedia visual | Kalau memakai Gemini TTS atau visual Gemini |
@@ -163,6 +164,7 @@ Setiap bagian (penyusun cerita, suara narator) punya satu dropdown penyedia. Han
 Ya. Aplikasinya gratis dan kodenya terbuka dengan lisensi MIT. Yang berbayar hanya pemakaian layanan AI. Biayanya kamu bayar langsung ke penyedia, dengan kunci API milikmu:
 - kredit Higgsfield untuk gambar dan video;
 - biaya Gemini, OpenRouter, Groq, atau ElevenLabs sesuai paket akunmu.
+- **Pollinations gratis** (tanpa kunci, tanpa login) bisa dipakai untuk gambar dan naskah, dan otomatis jadi cadangan kalau penyedia utama gagal.
 
 Perkiraan kredit tiap model Higgsfield ditampilkan sebelum membuat gambar atau video. Perkiraannya diambil dari endpoint `estimate` Higgsfield, yang tidak memakai kredit.
 </details>

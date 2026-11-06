@@ -21,7 +21,8 @@ import { useEstimate, useEstimates } from '../../lib/useEstimate'
 const TAG_FILTERS: Record<VisualProvider, string[]> = {
   higgsfield: ['Rekomendasi', 'Referensi', 'GPT Image', 'Soul', 'Recraft', '4K'],
   gemini: ['Rekomendasi', 'Murah'],
-  'chatgpt-web': ['Rekomendasi']
+  'chatgpt-web': ['Rekomendasi'],
+  pollinations: ['Gratis']
 }
 
 /** Adds each model's estimated credits to its picker row once a Higgsfield key is known to exist. */
@@ -50,6 +51,8 @@ function Cost({
     return <span className="text-muted">Harga mengikuti pemakaian Gemini (bukan kredit), lihat tagihan di Google AI Studio.</span>
   if (provider === 'chatgpt-web')
     return <span className="text-muted">Gratis — pakai kuota free akun ChatGPT kamu, tanpa kunci API.</span>
+  if (provider === 'pollinations')
+    return <span className="text-muted">Gratis — tanpa kunci, tanpa login.</span>
   if (hasKey === false) return <span className="text-muted">Perkiraan kredit muncul setelah kunci Higgsfield diisi di Pengaturan.</span>
   if (value === undefined)
     return (
@@ -105,6 +108,11 @@ export function ModelSection({
         .catch(() => setHasKey(false))
       return
     }
+    // Pollinations has no key at all: it is always ready.
+    if (provider === 'pollinations') {
+      setHasKey(true)
+      return
+    }
     void window.api.settings.keys().then((keys) => setHasKey(!!keys.find((k) => k.provider === provider)?.configured))
   }, [provider])
 
@@ -147,7 +155,7 @@ export function ModelSection({
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-sm font-semibold">Model AI</span>
         <span className="text-[13px] text-muted">
-          {imageOptions.length} model gambar dan {videoOptions.length} model video dari {provider === 'gemini' ? 'Gemini' : 'Higgsfield'}
+          {imageOptions.length} model gambar dan {videoOptions.length} model video dari {VISUAL_PROVIDERS.find((p) => p.id === provider)?.label ?? provider}
         </span>
         <Segmented
           size="sm"
@@ -198,7 +206,7 @@ export function ModelSection({
         <Card icon={<Film className="size-4" />} title="Video AI">
           {!video ? (
             <p className="text-[12.5px] leading-snug text-ink-2">
-              ChatGPT Web hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.
+              {provider === 'chatgpt-web' ? 'ChatGPT Web' : 'Pollinations'} hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.
             </p>
           ) : (
             <>

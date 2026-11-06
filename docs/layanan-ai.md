@@ -22,13 +22,26 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
 | `gemini` | LLM (naskah/visual), Gemini TTS, dan visual (Nano Banana + Omni Flash) |
 | `elevenlabs` | TTS |
 | `openrouter`, `groq`, `custom` | LLM lewat API kompatibel OpenAI |
+| `pollinations` | LLM (teks gratis) dan visual gambar (Flux, gratis) — tanpa kunci, tanpa login |
 | ChatGPT Web (tanpa kunci) | visual gambar saja, lewat browser |
 
 ## Visual (`services/visual.ts`, `services/gemini-visual.ts`, `services/chatgpt-web.ts`, `shared/visual.ts`)
 
-- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, atau `chatgpt-web`, dipilih per proyek
-  (`project.visualProvider`, kolom `visual_provider`; proyek lama tanpa kolom dibaca sebagai `higgsfield`).
+- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, `chatgpt-web`, atau
+  `pollinations`, dipilih per proyek (`project.visualProvider`, kolom `visual_provider`; proyek lama tanpa kolom
+  dibaca sebagai `higgsfield`, dan nilai di luar daftar itu juga jatuh ke `higgsfield`).
   `generation.ts` tidak lagi memanggil Higgsfield langsung.
+- **Cadangan otomatis (gambar):** kalau penyedia gambar yang dipilih gagal — kuota habis, kunci ditolak, server
+  sibuk, jaringan putus — `startVisual` mencoba sekali lagi lewat Pollinations gratis (bukan video, dan bukan
+  kalau tugas dibatalkan pengguna). Aset yang tersimpan mencatat penyedia yang benar-benar membuatnya. Kalau
+  Pollinations juga gagal, error-nya menyebut kedua kegagalan itu.
+- Pollinations: gambar **gratis, tanpa kunci, tanpa login, tanpa browser** — `GET image.pollinations.ai/prompt/{prompt}`
+  (model `flux` = FLUX.1-schnell), ukuran mengikuti rasio (16:9 → 1280×720, 9:16 → 720×1280), seed acak tiap
+  pengiriman. URL gambarnya sendiri adalah id job, jadi resume setelah restart tinggal mengunduh ulang URL yang
+  sama. Referensi tidak bisa dikirim (Pollinations hanya menerima gambar referensi sebagai URL publik, sementara
+  lembar karakter tersimpan lokal), jadi konsistensi tokoh mengandalkan deskripsi karakter di dalam teks prompt —
+  `maxRefs` 0. Gambar bisa membawa watermark kecil pollinations.ai walau sudah `nologo=true`. Tidak ada estimasi
+  dan tidak ada pembatalan sungguhan.
 - Higgsfield: seperti sebelumnya — gambar lewat `submitImage`, video lewat `submitVideo`, hasil diunduh dari URL,
   estimasi kredit dari endpoint `estimate`.
 - Gemini: lewat **Interactions API** (REST mentah, `POST /v1beta/interactions`, header `Api-Revision: 2026-05-20`),
@@ -66,6 +79,11 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
 - `generateJson({ system, prompt, schema, name })` memanggil penyedia aktif (`settings.llmProvider` +
   `llmModels[provider]`).
   - Gemini: `@google/genai` dengan `responseJsonSchema` (dan cadangan: skema ditulis di system instruction).
+  - **Cadangan otomatis:** kalau penyedia aktif gagal karena kuota, overload, atau jaringan, `generateJson`
+    mencoba sekali lagi lewat Pollinations gratis (`text.pollinations.ai/openai/v1/chat/completions`, model
+    `openai-fast`, tanpa kunci). Kunci yang ditolak (401/403, kunci belum diatur, model belum dipilih) tidak
+    pernah ditutupi — error-nya dilempar apa adanya. Kalau cadangan juga gagal, error-nya menyebut kedua
+    kegagalan itu.
   - Lainnya: `/chat/completions`, dicoba berurutan `json_schema` (strict) → `json_object` → teks biasa, lalu JSON
     diambil dari teks (`extractJson`) untuk model yang tidak mendukung structured output.
 - `listModels(source)`: daftar model live dari penyedia, dicache di tabel `cache` dan disegarkan saat basi.

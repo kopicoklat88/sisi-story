@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultLanguage: 'id',
   exportFolder: null,
   llmProvider: 'gemini',
-  llmModels: { gemini: 'gemini-3.8-flash', openrouter: '', groq: '', custom: '' },
+  llmModels: { gemini: 'gemini-3.8-flash', openrouter: '', groq: '', custom: '', pollinations: 'openai-fast' },
   customBaseUrl: '',
   geminiTtsModel: 'gemini-3.8-flash-tts',
   elevenModel: 'eleven_multilingual_v2',
@@ -49,6 +49,12 @@ export function getSettings(): AppSettings {
   const chatgptWeb = out.visualModels['chatgpt-web'] ?? DEFAULT_SETTINGS.visualModels['chatgpt-web']
   out.visualModels['chatgpt-web'] = {
     image: getVisualImageModel('chatgpt-web', chatgptWeb.image).id,
+    video: ''
+  }
+  // Pollinations is image-only too; its video slot stays empty.
+  const pollinations = out.visualModels.pollinations ?? DEFAULT_SETTINGS.visualModels.pollinations
+  out.visualModels.pollinations = {
+    image: getVisualImageModel('pollinations', pollinations.image).id,
     video: ''
   }
   return out

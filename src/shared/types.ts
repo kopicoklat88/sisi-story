@@ -3,9 +3,9 @@ export type AspectRatio = '16:9' | '9:16'
 export type TtsProvider = 'gemini' | 'elevenlabs'
 
 /** Who draws the clip images and animates them. Higgsfield is the original provider; Gemini is the second. */
-export type VisualProvider = 'higgsfield' | 'gemini' | 'chatgpt-web'
-export type LlmProvider = 'gemini' | 'openrouter' | 'groq' | 'custom'
-export type ApiProvider = 'higgsfield' | 'gemini' | 'elevenlabs' | 'openrouter' | 'groq' | 'custom'
+export type VisualProvider = 'higgsfield' | 'gemini' | 'chatgpt-web' | 'pollinations'
+export type LlmProvider = 'gemini' | 'openrouter' | 'groq' | 'custom' | 'pollinations'
+export type ApiProvider = 'higgsfield' | 'gemini' | 'elevenlabs' | 'openrouter' | 'groq' | 'custom' | 'pollinations'
 /** Where a live model list comes from: an LLM provider, or a TTS catalog. */
 export type ModelSource = LlmProvider | 'gemini-tts' | 'elevenlabs'
 export type MotionType = 'camera' | 'video'
