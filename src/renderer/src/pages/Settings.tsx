@@ -20,7 +20,6 @@ import { visualImageModels, visualVideoModels } from '@shared/visual'
 import { LANGUAGES, LLM_PROVIDERS } from '@shared/models'
 import type { ApiProvider, AppSettings, KeyStatus, KeyTestResult, LlmProvider, TtsProvider } from '@shared/types'
 import { Logo } from '../components/Logo'
-import { ModelLogo } from '../components/ModelLogo'
 import { ModelPicker } from '../components/ModelPicker'
 import { ProviderLogo, type ProviderLogoId } from '../components/ProviderLogo'
 import { Select } from '../components/Select'
@@ -509,48 +508,9 @@ function TtsSection({ settings, statusOf, onChanged, onSettings }: { settings: A
 
 function HiggsfieldSection({ statusOf, onChanged }: { statusOf: (p: ApiProvider) => KeyStatus | undefined; onChanged: () => void }) {
   const status = statusOf('higgsfield')
-  const openaiStatus = statusOf('openai')
   return (
     <>
-      <SectionTitle
-        icon={<ImageIcon className="size-5" />}
-        title="Gambar dan video"
-        sub="Higgsfield dan OpenAI membuat gambar klip, lembar karakter, dan (Higgsfield) video AI."
-      />
-      <Card>
-        <div className="flex items-center gap-3">
-          <ProviderLogo id="openai" />
-          <div className="flex flex-1 flex-col">
-            <span className="text-base font-bold">OpenAI</span>
-            <span className="text-[13px] text-ink-2">GPT Image lewat API resmi — model yang sama seperti di ChatGPT web, tapi sebagai backend sungguhan: tanpa browser, tanpa verifikasi bot</span>
-          </div>
-          <StatusBadge status={openaiStatus} />
-        </div>
-        <KeyForm
-          provider="openai"
-          name="OpenAI"
-          status={openaiStatus}
-          placeholder="Tempel kunci API OpenAI (sk-…)"
-          hint={
-            <>
-              Di <strong className="text-ink">platform.openai.com/api-keys</strong>, buat kunci baru lalu tempel di sini. Kunci ini butuh saldo
-              (isi $5 sekali, cukup untuk ratusan gambar — sekitar $0,01–0,05 per gambar). Kunci yang sama juga bisa dipakai untuk naskah
-              (pilih OpenAI di bagian Naskah di atas).
-            </>
-          }
-          help="Kunci dicek dengan daftar model, tanpa biaya."
-          link="https://platform.openai.com/api-keys"
-          linkLabel="Buka OpenAI API keys"
-          onChanged={onChanged}
-        />
-        <p className="flex items-start gap-2.5 border-t border-dashed border-line pt-4 text-[13px] leading-relaxed text-ink-2">
-          <Film className="mt-0.5 size-4 shrink-0" />
-          <span>
-            OpenAI Images API hanya membuat gambar (tanpa video), dengan referensi sampai 16 lembar karakter — paling banyak dari semua penyedia.
-            Model yang tersedia: GPT Image 1.5 dan GPT Image 2.
-          </span>
-        </p>
-      </Card>
+      <SectionTitle icon={<ImageIcon className="size-5" />} title="Gambar dan video" sub="Higgsfield membuat gambar klip, lembar karakter, dan video AI." />
       <Card>
         <div className="flex items-center gap-3">
           <ProviderLogo id="higgsfield" />
@@ -583,9 +543,8 @@ function HiggsfieldSection({ statusOf, onChanged }: { statusOf: (p: ApiProvider)
             Semua {visualImageModels('higgsfield').length} model gambar dan {visualVideoModels('higgsfield').length} model video Higgsfield bisa dipakai.
             Alternatifnya, pilih <strong className="text-ink">Gemini</strong> sebagai penyedia visual ({visualImageModels('gemini').length} model gambar Nano
             Banana dan {visualVideoModels('gemini').length} model video Omni Flash) — pakai kunci Gemini yang sama — atau{' '}
-            <strong className="text-ink">ChatGPT Web</strong> untuk gambar gratis lewat kuota free akun ChatGPT (tanpa kunci API, tanpa video), atau{' '}
-            <strong className="text-ink">Custom</strong> untuk endpoint OpenAI-compatible kamu sendiri (misal 9Router) — pakai alamat + kunci custom yang
-            sama dengan naskah, lalu ketik ID model gambarnya di Model AI.
+            <strong className="text-ink">Custom</strong> untuk API key OpenAI-compatible apa pun (OpenRouter, Groq, Together, server sendiri) — pakai
+            alamat + kunci custom yang sama dengan naskah, lalu ketik ID model gambarnya di Model AI.
             Modelnya dipilih per proyek di langkah <strong className="text-ink">Ide cerita</strong>, bagian Model AI.
           </span>
         </p>
@@ -593,141 +552,6 @@ function HiggsfieldSection({ statusOf, onChanged }: { statusOf: (p: ApiProvider)
     </>
   )
 }
-
-/**
- * ChatGPT Web: no API key — the app drives chatgpt.com in a browser (Google Chrome must be
- * installed) and spends the account's free image quota. The login lives in the browser profile
- * and is checked live; the button below opens the browser for the user to log in.
- */
-function ChatGptWebSection() {
-  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
-  const [driver, setDriver] = useState<'cdp' | 'real-profile' | 'fresh' | 'extension' | null>(null)
-  const [extDir, setExtDir] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [note, setNote] = useState('')
-
-  useEffect(() => {
-    let live = true
-    void window.api.chatgptWeb
-      .status()
-      .then((s) => {
-        if (live) {
-          setLoggedIn(s.loggedIn)
-          setDriver(s.driver)
-        }
-      })
-      .catch(() => {
-        if (live) setLoggedIn(false)
-      })
-    void window.api.chatgptWeb
-      .extensionDir()
-      .then((d) => {
-        if (live) setExtDir(d)
-      })
-      .catch(() => {})
-    return () => {
-      live = false
-    }
-  }, [])
-
-  const login = async (): Promise<void> => {
-    setBusy(true)
-    setNote('Browser ChatGPT terbuka — login di sana, lalu kembali ke sini.')
-    try {
-      const s = await window.api.chatgptWeb.login()
-      setLoggedIn(s.loggedIn)
-      setNote(s.loggedIn ? 'Login berhasil. Gambar klip bisa dibuat lewat ChatGPT Web.' : 'Login belum selesai (waktu habis). Coba lagi.')
-    } catch (e) {
-      setLoggedIn(false)
-      setNote(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  /** One click: the app drives the user's real Chrome profile (already logged in, no bot check).
-   * Chrome closes once and its tabs come back inside the driver browser — no debug flag, no
-   * Terminal command. */
-  const attachAndLogin = async (): Promise<void> => {
-    setBusy(true)
-    setNote('Chrome kamu ditutup sebentar, lalu dibuka lagi sebagai browser kerja (tab pulih kembali)…')
-    try {
-      await window.api.chatgptWeb.attach()
-      await login()
-      const s = await window.api.chatgptWeb.status()
-      setDriver(s.driver)
-    } catch (e) {
-      setBusy(false)
-      setNote(errorText(e))
-    }
-  }
-
-  /** Closes the driver browser and hands the user's Chrome back. */
-  const release = async (): Promise<void> => {
-    setBusy(true)
-    setNote('Mengembalikan Chrome kamu…')
-    try {
-      await window.api.chatgptWeb.release()
-      setDriver(null)
-      setLoggedIn(false)
-      setNote('Chrome kamu sudah kembali. Klik "Pakai Chrome yang sudah login" lagi kalau mau membuat gambar.')
-    } catch (e) {
-      setNote(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Card>
-      <div className="flex items-center gap-3">
-        <ModelLogo family="chatgpt" size={40} />
-        <div className="flex flex-1 flex-col">
-          <span className="text-base font-bold">ChatGPT Web</span>
-          <span className="text-[13px] text-ink-2">GPT Image lewat browser chatgpt.com · kuota free akun ChatGPT, tanpa kunci API</span>
-        </div>
-        {loggedIn === null ? <Badge tone="draft">Mengecek…</Badge> : loggedIn ? <Badge tone="ok">Login aktif</Badge> : <Badge tone="draft">Belum login</Badge>}
-      </div>
-      <p className="text-[13px] leading-relaxed text-ink-2">
-        Gambar dibuat satu per satu di browser (butuh Google Chrome terpasang). Lembar karakter ikut dilampirkan supaya tokoh tetap sama.
-        Hanya gambar — video AI tidak tersedia di penyedia ini, dan kalau ChatGPT menampilkan pemeriksaan bot atau tampilannya berubah,
-        pembuatan gambar gagal dan bisa dicoba lagi setelah login ulang. Kalau Chrome kamu sudah login, pakai tombol kedua: aplikasi
-        memakai profil Chrome kamu sendiri sebagai browser kerja — sudah login, tanpa verifikasi bot, tanpa perintah terminal.
-        Selama browser kerja itu jalan, Chrome biasa tidak bisa dibuka; tombol ketiga mengembalikannya.
-      </p>
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void login()} disabled={busy}>
-          {busy ? 'Menunggu login di browser…' : loggedIn ? 'Buka browser & login ulang' : 'Buka browser & login'}
-        </Button>
-        <Button onClick={() => void attachAndLogin()} disabled={busy}>
-          Pakai Chrome yang sudah login
-        </Button>
-        {driver === 'real-profile' && (
-          <Button onClick={() => void release()} disabled={busy}>
-            Kembalikan Chrome
-          </Button>
-        )}
-        {note && <span className="text-[13px] text-ink-2">{note}</span>}
-      </div>
-      <div className="flex flex-col gap-2 border-t border-dashed border-line pt-4">
-        <span className="text-sm font-semibold">
-          Cara paling andal: ekstensi Chrome {driver === 'extension' && <Badge tone="ok">Ekstensi aktif</Badge>}
-        </span>
-        <p className="text-[13px] leading-relaxed text-ink-2">
-          Ekstensi ini jalan di dalam Chrome kamu sendiri — tanpa profil, tanpa flag, tanpa verifikasi bot. Sekali pasang, gambar
-          dibuat lewat tab chatgpt.com yang sudah kamu buka. Caranya: buka chrome://extensions, nyalakan Developer mode, klik
-          “Load unpacked”, lalu pilih folder ini:
-        </p>
-        {extDir && <span className="break-all font-mono text-[12px] text-ink-2">{extDir}</span>}
-        <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={() => void window.api.chatgptWeb.openExtensionDir()}>Buka folder ekstensi</Button>
-          <Button onClick={() => void window.api.chatgptWeb.openChromeExtensions()}>Buka chrome://extensions</Button>
-        </div>
-      </div>
-    </Card>
-  )
-}
-
 export function Settings() {
   const { go, route } = useApp()
   const back = route.name === 'settings' && route.back ? route.back : ({ name: 'home' } as const)
@@ -798,7 +622,6 @@ export function Settings() {
                 <LlmSection settings={settings} statusOf={statusOf} onChanged={reload} onSettings={setSettings} />
                 <TtsSection settings={settings} statusOf={statusOf} onChanged={reload} onSettings={setSettings} />
                 <HiggsfieldSection statusOf={statusOf} onChanged={reload} />
-                <ChatGptWebSection />
                 <WhisperSection settings={settings} onSettings={setSettings} />
               </>
             )}

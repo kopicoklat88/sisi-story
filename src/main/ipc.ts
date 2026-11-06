@@ -50,8 +50,6 @@ import {
 import { clearSecret, keyStatuses, recordCheck, revealSecret, setSecret } from './secrets'
 import { dropCache, getSettings, setSettings } from './settings'
 import { probeDurationMs, probeSize } from './services/audio'
-import { chatGptWebAttachChrome, chatGptWebLogin, chatGptWebRelease, chatGptWebStatus } from './services/chatgpt-web'
-import { extensionDir } from './services/chatgpt-extension-server'
 import * as eleven from './services/elevenlabs'
 import * as gemini from './services/gemini'
 import * as hf from './services/higgsfield'
@@ -224,21 +222,6 @@ export function registerIpc(): void {
   handle('settings:voices', async (provider: TtsProvider): Promise<VoiceOption[]> => {
     if (provider === 'gemini') return gemini.listVoices()
     return eleven.listVoices()
-  })
-
-  // ChatGPT Web has no API key: the login lives in the browser profile.
-  handle('chatgptWeb:status', () => chatGptWebStatus())
-  handle('chatgptWeb:login', () => chatGptWebLogin())
-  handle('chatgptWeb:attach', () => chatGptWebAttachChrome())
-  handle('chatgptWeb:release', () => chatGptWebRelease())
-  handle('chatgptWeb:extensionDir', () => extensionDir())
-  handle('chatgptWeb:openExtensionDir', () => {
-    shell.showItemInFolder(extensionDir())
-    return true
-  })
-  handle('chatgptWeb:openChromeExtensions', async () => {
-    await shell.openExternal('chrome://extensions/')
-    return true
   })
 
   handle('export:start', (projectId: string, opts: ExportOptions) => startExport(projectId, opts))

@@ -1,8 +1,6 @@
 import { getImageModel, getVideoModel, imageBody, videoBody, type HfModel } from '@shared/higgsfield'
 import { hfModelOf, type VisualModel, type VisualProvider } from '@shared/visual'
 import type { AspectRatio, CreditEstimate, KeyTestResult } from '@shared/types'
-import * as chatgptWeb from './chatgpt-web'
-import { createExtensionJob, extensionStatus, getExtensionJob } from './chatgpt-extension-server'
 import * as geminiVisual from './gemini-visual'
 import * as hf from './higgsfield'
 import { downloadTo } from './http'
@@ -133,71 +131,24 @@ function geminiAdapter(): VisualAdapter {
 
 export function adapter(provider: VisualProvider): VisualAdapter {
   if (provider === 'gemini') return geminiAdapter()
-  if (provider === 'chatgpt-web') return chatGptWebAdapter()
-  if (provider === 'openai') return openaiAdapter()
   if (provider === 'custom') return customVisualAdapter()
   return higgsfieldAdapter()
 }
 
-// ChatGPT Web runs live in the module (submit and wait run on different adapter instances),
-// so their promises live here, not on the adapter.
-const chatGptRuns = new Map<string, { promise: Promise<{ bytes: Buffer; mime: string }>; onTick: (status: string, elapsedMs: number) => void }>()
-
 /**
- * Waits for an extension job to finish: polls the bridge every 2 seconds until the extension
- * reports the image (or an error), or 10 minutes pass. A job that never leaves 'pending' means
- * the extension never picked it up — the tab is closed or the extension is off — and the error
- * says so instead of timing out silently.
+ * Custom image endpoint: any OpenAI-compatible Images API, driven with the user's own key.
+ * Generations are a JSON call; with references it is a multipart /edits call (up to 16 images).
+ * The request body stays minimal (no quality, no input_fidelity, no output_format — those are
+ * OpenAI-only, and a generic endpoint may reject parameters it does not know). The answer may
+ * come back as base64 or as a hosted URL (downloaded). Billing follows the user's endpoint.
  */
-async function waitForExtensionJob(
-  id: string,
-  onTick: (status: string, elapsedMs: number) => void,
-  signal?: AbortSignal
-): Promise<{ bytes: Buffer; mime: string }> {
-  const started = Date.now()
-  for (;;) {
-    if (signal?.aborted) throw new Error('Dibatalkan')
-    onTick('in_progress', Date.now() - started)
-    const job = await getExtensionJob(id)
-    if (!job) throw new Error('Job ekstensi ChatGPT tidak ditemukan (aplikasi dimulai ulang?).')
-    if (job.status === 'done' && job.image) {
-      return { bytes: Buffer.from(job.image.split(',')[1] ?? '', 'base64'), mime: job.mime ?? 'image/png' }
-    }
-    if (job.status === 'error') {
-      throw new Error(job.error ?? 'Ekstensi ChatGPT gagal membuat gambar.')
-    }
-    if (Date.now() - started > 10 * 60 * 1000) {
-      throw new Error(
-        job.status === 'pending'
-          ? 'Ekstensi ChatGPT tidak mengambil tugasnya. Buka chatgpt.com di Chrome dan pastikan ekstensi Bang Story aktif, lalu coba lagi.'
-          : 'ChatGPT web tidak membalas gambar dalam 10 menit. Coba lagi nanti.'
-      )
-    }
-    await new Promise((r) => setTimeout(r, 2000))
-  }
-}
-
-/**
- * OpenAI Images API (GPT Image as a real backend — the same model family as ChatGPT web, but no
- * browser, no bot check, no profile). gpt-image-1 and gpt-image-1-mini are retired, so the catalog
- * starts at 1.5. Generations are a JSON call; with references it is a multipart /edits call
- * (up to 16 images, input_fidelity high so character sheets stay faithful). The API always
- * answers with base64, and bills per use (~$0,01–0,05 per image at medium quality).
- *
- * The same shape serves a custom endpoint ('custom'): the user's own OpenAI-compatible router
- * (e.g. 9Router), with its base URL + key from the custom LLM settings. A custom endpoint may
- * serve any image model, so the request body stays minimal (no quality, no input_fidelity, no
- * output_format — those are OpenAI-only), and the answer may come back as a URL instead of base64.
- */
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
-
-function openaiSize(aspect: AspectRatio): string {
+function customSize(aspect: AspectRatio): string {
   if (aspect === '9:16') return '1024x1536'
   if (aspect === '16:9') return '1536x1024'
   return '1024x1024'
 }
 
-function friendlyOpenai(kind: 'openai' | 'custom', status: number, body: string): string {
+function friendlyCustom(status: number, body: string): string {
   let message = ''
   try {
     const parsed = JSON.parse(body) as { error?: { message?: string; code?: string } }
@@ -205,32 +156,24 @@ function friendlyOpenai(kind: 'openai' | 'custom', status: number, body: string)
   } catch {
     message = ''
   }
-  if (kind === 'custom') {
-    if (status === 401) return 'Kunci custom ditolak. Periksa kunci + alamat endpoint custom di Pengaturan.'
-    if (status === 429 || /insufficient_quota|billing/i.test(message)) {
-      return 'Endpoint custom menolak permintaan (kuota atau saldo habis?). Cek router kamu.'
-    }
-    return message ? `Endpoint custom: ${message}` : `Endpoint custom menjawab dengan status ${status}.`
-  }
-  if (status === 401) return 'Kunci OpenAI ditolak. Periksa kunci di Pengaturan › Gambar dan video.'
+  if (status === 401) return 'Kunci custom ditolak. Periksa kunci + alamat endpoint custom di Pengaturan.'
   if (status === 429 || /insufficient_quota|billing/i.test(message)) {
-    return 'OpenAI menolak permintaan (kuota atau saldo habis?). Cek billing di platform.openai.com.'
+    return 'Endpoint custom menolak permintaan (kuota atau saldo habis?). Cek penyedia API kamu.'
   }
-  return message ? `OpenAI: ${message}` : `OpenAI menjawab dengan status ${status}.`
+  return message ? `Endpoint custom: ${message}` : `Endpoint custom menjawab dengan status ${status}.`
 }
 
-const openaiRuns = new Map<string, Promise<{ bytes: Buffer; mime: string }>>()
+const customRuns = new Map<string, Promise<{ bytes: Buffer; mime: string }>>()
 
-function openaiCompatibleAdapter(kind: 'openai' | 'custom'): VisualAdapter {
-  const keyHint = kind === 'custom' ? 'Isi alamat endpoint + kunci custom dulu di Pengaturan › Penyusun cerita.' : 'Isi kunci OpenAI dulu di Pengaturan › Gambar dan video.'
+function customVisualAdapter(): VisualAdapter {
+  const keyHint = 'Isi alamat endpoint + kunci custom dulu di Pengaturan › Penyusun cerita.'
   return {
     submitImage: (input, signal) => {
-      const base =
-        kind === 'custom' ? getSettings().customBaseUrl.trim().replace(/\/+$/, '') : OPENAI_BASE_URL
-      if (kind === 'custom' && !base) return Promise.reject(new Error(keyHint))
-      const key = getSecret(kind)
+      const base = getSettings().customBaseUrl.trim().replace(/\/+$/, '')
+      if (!base) return Promise.reject(new Error(keyHint))
+      const key = getSecret('custom')
       if (!key) return Promise.reject(new Error(keyHint))
-      const size = openaiSize(input.aspect)
+      const size = customSize(input.aspect)
       const refs = (input.refs ?? []).filter((r) => r.bytes).slice(0, 16)
       const headers: Record<string, string> = { Authorization: `Bearer ${key}` }
       const call =
@@ -241,29 +184,18 @@ function openaiCompatibleAdapter(kind: 'openai' | 'custom'): VisualAdapter {
               form.append('prompt', input.prompt)
               form.append('model', input.model.id)
               form.append('size', size)
-              // OpenAI-only knobs (quality, input_fidelity, output_format) stay out of the
-              // custom body: a generic router may reject parameters it does not know.
-              if (kind === 'openai') {
-                form.append('quality', 'medium')
-                form.append('input_fidelity', 'high')
-                form.append('output_format', 'png')
-              }
               return fetch(`${base}/images/edits`, { method: 'POST', headers, body: form, signal })
             })()
           : fetch(`${base}/images/generations`, {
               method: 'POST',
               headers: { ...headers, 'Content-Type': 'application/json' },
-              body: JSON.stringify(
-                kind === 'openai'
-                  ? { prompt: input.prompt, model: input.model.id, size, quality: 'medium', n: 1, output_format: 'png' }
-                  : { prompt: input.prompt, model: input.model.id, size, n: 1 }
-              ),
+              body: JSON.stringify({ prompt: input.prompt, model: input.model.id, size, n: 1 }),
               signal
             })
-      const id = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const promise = call
         .then(async (res) => {
-          if (!res.ok) throw new Error(friendlyOpenai(kind, res.status, await res.text()))
+          if (!res.ok) throw new Error(friendlyCustom(res.status, await res.text()))
           const data = (await res.json()) as { data?: { b64_json?: string; url?: string }[] }
           const first = data.data?.[0]
           if (first?.b64_json) return { bytes: Buffer.from(first.b64_json, 'base64'), mime: 'image/png' }
@@ -272,27 +204,20 @@ function openaiCompatibleAdapter(kind: 'openai' | 'custom'): VisualAdapter {
             const downloaded = await downloadTo(first.url, signal)
             return { bytes: downloaded.bytes, mime: downloaded.contentType || 'image/png' }
           }
-          throw new Error(kind === 'custom' ? 'Endpoint custom tidak mengembalikan gambar.' : 'OpenAI tidak mengembalikan gambar.')
+          throw new Error('Endpoint custom tidak mengembalikan gambar.')
         })
         .catch((e) => {
           if ((e as Error).name === 'AbortError') throw new Error('Dibatalkan')
           throw e
         })
-      openaiRuns.set(id, promise)
-      void promise.catch(() => {}).finally(() => openaiRuns.delete(id))
+      customRuns.set(id, promise)
+      void promise.catch(() => {}).finally(() => customRuns.delete(id))
       return Promise.resolve(id)
     },
-    submitVideo: () =>
-      Promise.reject(
-        new Error(
-          kind === 'custom'
-            ? 'Endpoint custom hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.'
-            : 'OpenAI Images API hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.'
-        )
-      ),
+    submitVideo: () => Promise.reject(new Error('Endpoint custom hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')),
     waitForResult: async (remoteId, kind, onTick, signal) => {
       if (kind === 'video') throw new Error('Endpoint ini hanya bisa membuat gambar.')
-      const run = openaiRuns.get(remoteId)
+      const run = customRuns.get(remoteId)
       if (!run) throw new Error('Job gambar tidak ditemukan (mungkin aplikasi dimulai ulang).')
       onTick('in_progress', 0)
       const result = signal
@@ -308,14 +233,13 @@ function openaiCompatibleAdapter(kind: 'openai' | 'custom'): VisualAdapter {
     // Per-use billing, no estimate endpoint.
     estimate: async () => null,
     testCredentials: async (cred) => {
-      const base =
-        kind === 'custom' ? getSettings().customBaseUrl.trim().replace(/\/+$/, '') : OPENAI_BASE_URL
-      const key = cred ?? getSecret(kind)
+      const base = getSettings().customBaseUrl.trim().replace(/\/+$/, '')
+      const key = cred ?? getSecret('custom')
       if (!key) return { ok: false, message: keyHint }
-      if (kind === 'custom' && !base) return { ok: false, message: keyHint }
+      if (!base) return { ok: false, message: keyHint }
       try {
         const res = await fetch(`${base}/models`, { headers: { Authorization: `Bearer ${key}` } })
-        if (!res.ok) return { ok: false, message: friendlyOpenai(kind, res.status, await res.text()) }
+        if (!res.ok) return { ok: false, message: friendlyCustom(res.status, await res.text()) }
         const data = (await res.json()) as { data?: unknown[] }
         return { ok: true, message: `Terhubung · ${data.data?.length ?? 0} model tersedia` }
       } catch (e) {
@@ -325,77 +249,3 @@ function openaiCompatibleAdapter(kind: 'openai' | 'custom'): VisualAdapter {
   }
 }
 
-function openaiAdapter(): VisualAdapter {
-  return openaiCompatibleAdapter('openai')
-}
-
-function customVisualAdapter(): VisualAdapter {
-  return openaiCompatibleAdapter('custom')
-}
-
-function chatGptWebAdapter(): VisualAdapter {
-  return {
-    submitImage: async (input) => {
-      // First choice: the Chrome extension, when it is connected and its tab is logged in. It
-      // runs inside the user's real browser, so there is no profile, flag, or bot check involved.
-      // References travel as data URLs inside the job; the content script turns them into files.
-      const ext = await extensionStatus().catch(() => ({ connected: false, loggedIn: false }))
-      if (ext.connected && ext.loggedIn) {
-        const refs = (input.refs ?? [])
-          .filter((r) => r.bytes)
-          .map((r) => ({ dataUrl: `data:${r.mime};base64,${(r.bytes as Buffer).toString('base64')}`, mime: r.mime }))
-        const id = await createExtensionJob(input.prompt, refs)
-        return `ext:${id}`
-      }
-      // Fallback: the Playwright driver (CDP, real profile, or a fresh profile).
-      // References go to the browser as files; a reference without bytes cannot be sent.
-      const refs = (input.refs ?? []).filter((r) => r.bytes).map((r) => ({ bytes: r.bytes as Buffer, mime: r.mime }))
-      const files = chatgptWeb.writeRefFiles(refs)
-      const id = `chatgpt-web-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-      const entry = {
-        promise: chatgptWeb
-          .chatGptWebImage(input.prompt, files, (s, e) => entry.onTick(s, e))
-          .finally(() => chatgptWeb.removeRefFiles(files)),
-        onTick: (_s: string, _e: number) => {}
-      }
-      chatGptRuns.set(id, entry)
-      void entry.promise.catch(() => {}).finally(() => chatGptRuns.delete(id))
-      return id
-    },
-    submitVideo: () => Promise.reject(new Error('ChatGPT Web hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')),
-    waitForResult: async (remoteId, kind, onTick, signal) => {
-      if (kind === 'video') throw new Error('ChatGPT Web hanya bisa membuat gambar.')
-      if (remoteId.startsWith('ext:')) {
-        const result = await waitForExtensionJob(remoteId.slice(4), onTick, signal)
-        return { images: [result] }
-      }
-      const entry = chatGptRuns.get(remoteId)
-      if (!entry) throw new Error('Job ChatGPT Web tidak ditemukan (mungkin aplikasi dimulai ulang).')
-      entry.onTick = onTick
-      const result = signal
-        ? await Promise.race([
-            entry.promise,
-            new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('Dibatalkan')), { once: true }))
-          ])
-        : await entry.promise
-      return { images: [result] }
-    },
-    // The browser keeps generating after a cancel; the result is discarded and the driver's
-    // serial queue moves on to the next image.
-    cancel: async () => {},
-    // Free ChatGPT quota, no estimate endpoint.
-    estimate: async () => null,
-    testCredentials: async () => {
-      const ext = await extensionStatus().catch(() => ({ connected: false, loggedIn: false }))
-      if (ext.connected) {
-        return ext.loggedIn
-          ? { ok: true, message: 'Terhubung · ekstensi ChatGPT aktif, login ChatGPT aktif' }
-          : { ok: false, message: 'Ekstensi ChatGPT terhubung, tapi belum login. Login ChatGPT di Chrome dulu.' }
-      }
-      const { loggedIn } = await chatgptWeb.chatGptWebStatus()
-      return loggedIn
-        ? { ok: true, message: 'Terhubung · login ChatGPT aktif' }
-        : { ok: false, message: 'Belum login ChatGPT. Buka Pengaturan › ChatGPT Web, login dulu.' }
-    }
-  }
-}

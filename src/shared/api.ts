@@ -93,23 +93,6 @@ export interface StudioApi {
     testKey(provider: ApiProvider): Promise<KeyTestResult>
     voices(provider: TtsProvider): Promise<VoiceOption[]>
   }
-  /** ChatGPT Web (browser provider): no API key, the login lives in the browser profile. */
-  chatgptWeb: {
-    /** Whether the ChatGPT browser session is logged in right now, and which browser holds it. */
-    status(): Promise<{ loggedIn: boolean; driver: 'cdp' | 'real-profile' | 'fresh' | 'extension' | null }>
-    /** Opens the browser for the user to log in, and waits until the composer appears. */
-    login(): Promise<{ loggedIn: boolean }>
-    /** Starts the driver on the user's real Chrome profile (already logged in, no bot check). */
-    attach(): Promise<{ attached: boolean }>
-    /** Closes the driver browser and hands the user's Chrome back. */
-    release(): Promise<{ released: boolean }>
-    /** Folder of the unpacked Chrome extension ("Load unpacked" source). */
-    extensionDir(): Promise<string>
-    /** Reveals the extension folder in the file manager. */
-    openExtensionDir(): Promise<boolean>
-    /** Opens chrome://extensions in the browser. */
-    openChromeExtensions(): Promise<boolean>
-  }
   models: {
     /** Live model list from the provider. Served from cache unless `refresh` is set or the cache is stale. */
     list(source: ModelSource, refresh?: boolean): Promise<ModelList>

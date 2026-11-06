@@ -21,14 +21,12 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
 | `higgsfield` | gambar, lembar karakter, video |
 | `gemini` | LLM (naskah/visual), Gemini TTS, dan visual (Nano Banana + Omni Flash) |
 | `elevenlabs` | TTS |
-| `openrouter`, `groq`, `custom`, `openai` | LLM lewat API kompatibel OpenAI |
-| ChatGPT Web (tanpa kunci) | visual gambar saja, lewat browser |
-| `openai` | visual gambar saja, lewat Images API resmi |
-| `custom` | visual gambar saja, lewat endpoint OpenAI-compatible sendiri (misal 9Router) |
+| `openrouter`, `groq`, `custom` | LLM lewat API kompatibel OpenAI |
+| `custom` | visual gambar saja, lewat API key OpenAI-compatible apa pun |
 
-## Visual (`services/visual.ts`, `services/gemini-visual.ts`, `services/chatgpt-web.ts`, `shared/visual.ts`)
+## Visual (`services/visual.ts`, `services/gemini-visual.ts`, `shared/visual.ts`)
 
-- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, `chatgpt-web`, `openai`, atau `custom`, dipilih per proyek
+- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, atau `custom`, dipilih per proyek
   (`project.visualProvider`, kolom `visual_provider`; proyek lama tanpa kolom dibaca sebagai `higgsfield`, dan nilai di luar daftar itu juga jatuh ke `higgsfield`).
   `generation.ts` tidak lagi memanggil Higgsfield langsung.
 - Higgsfield: seperti sebelumnya — gambar lewat `submitImage`, video lewat `submitVideo`, hasil diunduh dari URL,
@@ -45,40 +43,11 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
   per pemakaian, bukan kredit. Gemini juga tidak punya endpoint pembatalan: `cancel` adalah no-op dan menghentikan
   polling di sisi kita.
 - Semua gambar Gemini membawa watermark SynthID.
-- **OpenAI: GPT Image lewat Images API resmi** (`POST /v1/images/generations` JSON; dengan referensi, `POST /v1/images/edits`
-  multipart dengan `image[]`, sampai 16 gambar, `input_fidelity: high`). Model: GPT Image 1.5 (bawaan) dan GPT Image 2 —
-  gpt-image-1 dan gpt-image-1-mini sudah pensiun, jadi tidak masuk katalog. Kualitas `medium`, ukuran mengikuti aspek
-  (16:9 → 1536x1024, 9:16 → 1024x1536), hasil selalu base64 (`b64_json`, PNG). Tagihan per pemakaian (~$0,01–0,05 per
-  gambar menengah), jadi `estimate` selalu null dan UI menampilkan catatan tagihan. Kunci yang sama juga dipakai sebagai
-  penyedia LLM (GPT-5 dkk. lewat `/v1/chat/completions` dan daftar model dari `GET /v1/models`).
-- **Custom: endpoint gambar OpenAI-compatible sendiri** (misal 9Router) — adapter yang sama dengan OpenAI, tapi alamat +
-  kunci diambil dari pengaturan custom (yang sama dengan naskah), dan body permintaan sengaja minimal (tanpa `quality`,
-  `input_fidelity`, `output_format`) supaya router generik tidak menolak parameter yang tidak dikenalnya. ID model gambar
-  diketik pengguna di picker (bawaan `gpt-image-1.5`); jawaban boleh base64 (`b64_json`) atau URL (diunduh). Tagihan
-  mengikuti router pengguna, jadi `estimate` selalu null.
-- ChatGPT Web: **tanpa API** — ChatGPT web tidak punya API gambar publik, jadi driver (`services/chatgpt-web.ts`,
-  Playwright) menyetir chatgpt.com di browser sungguhan: login sekali (sesi tersimpan di folder profil
-  `chatgpt-web` di data aplikasi), tiap gambar dibuat di chat baru dengan prompt diketik, lembar karakter
-  dilampirkan lewat file picker (maksimal 3), lalu gambar hasil diunduh dari balasan. Butuh Google Chrome terpasang
-  (Playwright memakai `channel: 'chrome'`, tanpa unduh browser tambahan). Satu gambar dalam satu waktu (antre
-  serial), browser tampil supaya pengguna bisa melihat dan menyelamatkan kalau ada pemeriksaan bot. Hanya gambar
-  (GPT Image 1) — video AI tidak tersedia, dan UI menampilkannya sebagai catatan, bukan pilihan model. Tidak ada
-  estimasi biaya (kuota free akun ChatGPT) dan tidak ada pembatalan sungguhan (`cancel` no-op; hasil yang sudah
-  berjalan di browser dibuang). **Empat jalur browser, dari yang paling andal:** (1) **ekstensi Chrome** ("Bang Story —
-  ChatGPT", `resources/chatgpt-extension`) — jalan di dalam Chrome pengguna sendiri sebagai kode first-party, jadi
-  tanpa profil, tanpa flag debug, tanpa verifikasi bot, dan tanpa menutup Chrome; ekstensi mengambil tugas gambar
-  dari server lokal aplikasi (`http://127.0.0.1:18097`, `services/chatgpt-extension-server.ts`), mengerjakannya di
-  tab chatgpt.com, lalu mengirim hasilnya kembali. Sekali pasang lewat "Load unpacked" di chrome://extensions, dan
-  selama ekstensinya terhubung, adapter memakai jalur ini dulu. (2) Kalau Chrome pengguna berjalan dengan remote
-  debugging (port 9222, `CHATGPT_WEB_CDP_URL`), driver menumpang Chrome itu lewat CDP — sudah login, tanpa
-  verifikasi bot, dan browser pengguna tidak pernah ditutup driver; (3) kalau tidak, tombol "Pakai Chrome yang
-  sudah login" di Pengaturan menjalankan driver dengan **profil Chrome asli pengguna** — Chrome ditutup sekali,
-  lalu dibuka lagi sebagai browser kerja dengan tab yang pulih, sudah login dan sudah dipercaya, tanpa flag debug
-  sama sekali. Selama browser kerja itu jalan, Chrome biasa tidak bisa dibuka; tombol "Kembalikan Chrome" menutup
-  driver dan membuka lagi Chrome pengguna secara normal. Status check dan pembuatan gambar tidak pernah menutup
-  Chrome pengguna sendiri. (4) Kalau tidak ada profil Chrome, driver meluncurkan profil baru yang diperkeras
-  (`--disable-blink-features=AutomationControlled` + init script sembunyikan `navigator.webdriver`) supaya
-  pemeriksaan bot biasanya lolos sendiri.
+- **Custom: API key OpenAI-compatible apa pun** — alamat + kunci diambil dari pengaturan custom (yang sama dengan naskah).
+  Adapter memanggil `POST /images/generations` (JSON) atau, kalau ada referensi, `POST /images/edits` (multipart `image[]`,
+  sampai 16 gambar), dengan body sengaja minimal (tanpa `quality`, `input_fidelity`, `output_format`) supaya endpoint
+  generik tidak menolak parameter yang tidak dikenalnya. ID model gambar diketik pengguna di picker (bawaan `gpt-image-1.5`);
+  jawaban boleh base64 (`b64_json`) atau URL (diunduh). Tagihan mengikuti penyedia API pengguna, jadi `estimate` selalu null.
 - Menambah penyedia visual baru: tambahkan ke `VisualProvider` (`types.ts`), katalog di `shared/visual.ts`,
   adapter di `services/visual.ts`, dan `DEFAULT_SETTINGS.visualModels`.
 

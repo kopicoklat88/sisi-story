@@ -45,7 +45,7 @@ const toProject = (r: Row): Project => ({
   styleId: r.style_id,
   ttsProvider: r.tts_provider,
   ttsVoice: r.tts_voice,
-  visualProvider: (['higgsfield', 'gemini', 'chatgpt-web'].includes(r.visual_provider)
+  visualProvider: (['higgsfield', 'gemini', 'custom'].includes(r.visual_provider)
     ? r.visual_provider
     : 'higgsfield') as VisualProvider,
   imageModel: r.image_model,

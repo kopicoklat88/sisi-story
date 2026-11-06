@@ -62,15 +62,6 @@ const api: StudioApi = {
     testKey: call('settings:testKey'),
     voices: call('settings:voices')
   },
-  chatgptWeb: {
-    status: call('chatgptWeb:status'),
-    login: call('chatgptWeb:login'),
-    attach: call('chatgptWeb:attach'),
-    release: call('chatgptWeb:release'),
-    extensionDir: call('chatgptWeb:extensionDir'),
-    openExtensionDir: call('chatgptWeb:openExtensionDir'),
-    openChromeExtensions: call('chatgptWeb:openChromeExtensions')
-  },
   models: {
     list: call('models:list')
   },

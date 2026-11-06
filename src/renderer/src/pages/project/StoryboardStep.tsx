@@ -399,7 +399,7 @@ function ClipPanel({ clip, index, total }: { clip: Clip; index: number; total: n
                   <span className="truncate">
                     {(() => {
                       const vm = getVisualVideoModel(project.visualProvider, project.videoModel)
-                      if (!vm) return 'Video AI tidak tersedia (ChatGPT Web hanya gambar)'
+                      if (!vm) return 'Video AI tidak tersedia (penyedia ini hanya gambar)'
                       const res = effectiveVisualResolution(vm, project.videoResolution)
                       return `${vm.name} · video ${fitVisualDuration(vm, clip.durationMs / 1000)} detik${res ? ` · ${res}` : ''}`
                     })()}
@@ -508,7 +508,7 @@ export function StoryboardStep() {
   }, [videoLengths, project?.aspectRatio, project?.videoResolution])
 
   if (!project) return null
-  // Null for providers without video models (ChatGPT Web is image-only).
+  // Null for providers without video models (the custom endpoint is image-only).
   const videoModel = getVisualVideoModel(project.visualProvider, project.videoModel)
   const selIndex = Math.max(0, clips.findIndex((c) => c.id === selectedClipId))
   const sel = clips[selIndex]

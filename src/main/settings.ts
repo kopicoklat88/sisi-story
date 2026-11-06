@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultLanguage: 'id',
   exportFolder: null,
   llmProvider: 'gemini',
-  llmModels: { gemini: 'gemini-3.8-flash', openrouter: '', groq: '', custom: '', openai: '' },
+  llmModels: { gemini: 'gemini-3.8-flash', openrouter: '', groq: '', custom: '' },
   customBaseUrl: '',
   geminiTtsModel: 'gemini-3.8-flash-tts',
   elevenModel: 'eleven_multilingual_v2',
@@ -44,18 +44,6 @@ export function getSettings(): AppSettings {
   out.visualModels.gemini = {
     image: getVisualImageModel('gemini', gemini.image).id,
     video: getVisualVideoModel('gemini', gemini.video)!.id
-  }
-  // ChatGPT Web is image-only; its video slot stays empty.
-  const chatgptWeb = out.visualModels['chatgpt-web'] ?? DEFAULT_SETTINGS.visualModels['chatgpt-web']
-  out.visualModels['chatgpt-web'] = {
-    image: getVisualImageModel('chatgpt-web', chatgptWeb.image).id,
-    video: ''
-  }
-  // OpenAI Images API is image-only too.
-  const openai = out.visualModels.openai ?? DEFAULT_SETTINGS.visualModels.openai
-  out.visualModels.openai = {
-    image: getVisualImageModel('openai', openai.image).id,
-    video: ''
   }
   // Custom endpoint: image-only, any model id the user typed stays valid.
   const custom = out.visualModels.custom ?? DEFAULT_SETTINGS.visualModels.custom

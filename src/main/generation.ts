@@ -87,15 +87,7 @@ async function publicUrlFor(asset: Asset, signal: AbortSignal): Promise<string> 
 }
 
 function providerLabel(provider: VisualProvider): string {
-  return provider === 'gemini'
-    ? 'Gemini'
-    : provider === 'chatgpt-web'
-      ? 'ChatGPT Web'
-      : provider === 'openai'
-        ? 'OpenAI'
-        : provider === 'custom'
-          ? 'Custom'
-          : 'Higgsfield'
+  return provider === 'gemini' ? 'Gemini' : provider === 'custom' ? 'Custom' : 'Higgsfield'
 }
 
 function imageProgress(ctx: TaskCtx, what: string, provider: VisualProvider) {
@@ -193,9 +185,9 @@ async function referenceRefs(
     const sheet = getAsset(fresh.sheetAssetId)
     if (!sheet || refs.length >= limit) continue
     const abs = assetAbsPath(sheet.projectId, sheet.localPath)
-    // Gemini and ChatGPT Web read the sheet inline; Higgsfield fetches it from a public URL.
+    // Gemini and Custom read the sheet inline; Higgsfield fetches it from a public URL.
     const ref: VisualRef = { mime: mimeFor(abs) }
-    if (provider === 'gemini' || provider === 'chatgpt-web') ref.bytes = await readFile(abs)
+    if (provider === 'gemini' || provider === 'custom') ref.bytes = await readFile(abs)
     else ref.publicUrl = await publicUrlFor(sheet, signal)
     refs.push(ref)
     names.push(fresh.name)
@@ -207,7 +199,7 @@ async function referenceRefs(
 async function imageRef(provider: VisualProvider, asset: Asset, signal: AbortSignal): Promise<VisualRef> {
   const abs = assetAbsPath(asset.projectId, asset.localPath)
   const ref: VisualRef = { mime: mimeFor(abs) }
-  if (provider === 'gemini' || provider === 'chatgpt-web') ref.bytes = await readFile(abs)
+  if (provider === 'gemini' || provider === 'custom') ref.bytes = await readFile(abs)
   else ref.publicUrl = await publicUrlFor(asset, signal)
   return ref
 }
@@ -497,7 +489,7 @@ export async function estimateCredits(
   seconds = 5,
   resolution?: string | null
 ): Promise<CreditEstimate | null> {
-  if (provider === 'gemini' || provider === 'chatgpt-web' || provider === 'openai' || provider === 'custom') return null
+  if (provider === 'gemini' || provider === 'custom') return null
   const model = kind === 'image' ? getVisualImageModel(provider, modelId) : getVisualVideoModel(provider, modelId)
   if (!model) return null
   const key = `estimate:${provider}:${model.id}:${aspect}:${seconds}:${resolution ?? ''}`

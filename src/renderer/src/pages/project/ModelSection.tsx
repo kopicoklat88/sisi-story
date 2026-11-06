@@ -21,8 +21,6 @@ import { useEstimate, useEstimates } from '../../lib/useEstimate'
 const TAG_FILTERS: Record<VisualProvider, string[]> = {
   higgsfield: ['Rekomendasi', 'Referensi', 'GPT Image', 'Soul', 'Recraft', '4K'],
   gemini: ['Rekomendasi', 'Murah'],
-  'chatgpt-web': ['Rekomendasi'],
-  openai: ['Rekomendasi', 'Referensi'],
   custom: ['Rekomendasi', 'Referensi']
 }
 
@@ -50,12 +48,8 @@ function Cost({
 }) {
   if (provider === 'gemini')
     return <span className="text-muted">Harga mengikuti pemakaian Gemini (bukan kredit), lihat tagihan di Google AI Studio.</span>
-  if (provider === 'openai')
-    return <span className="text-muted">~$0,01–0,05 per gambar (kualitas menengah), tagihan per pemakaian di OpenAI.</span>
   if (provider === 'custom')
-    return <span className="text-muted">Tagihan mengikuti endpoint custom kamu (misal 9Router).</span>
-  if (provider === 'chatgpt-web')
-    return <span className="text-muted">Gratis — pakai kuota free akun ChatGPT kamu, tanpa kunci API.</span>
+    return <span className="text-muted">Tagihan mengikuti endpoint custom kamu.</span>
   if (hasKey === false) return <span className="text-muted">Perkiraan kredit muncul setelah kunci Higgsfield diisi di Pengaturan.</span>
   if (value === undefined)
     return (
@@ -103,14 +97,6 @@ export function ModelSection({
   const [hasKey, setHasKey] = useState<boolean | null>(null)
 
   useEffect(() => {
-    // ChatGPT Web has no API key: "configured" means the browser session is logged in.
-    if (provider === 'chatgpt-web') {
-      void window.api.chatgptWeb
-        .status()
-        .then((s) => setHasKey(s.loggedIn))
-        .catch(() => setHasKey(false))
-      return
-    }
     // Custom visual reuses the custom LLM endpoint + key: both must be set.
     if (provider === 'custom') {
       void Promise.all([window.api.settings.keys(), window.api.settings.get()])
@@ -175,11 +161,6 @@ export function ModelSection({
           Isi kunci Gemini dulu di Pengaturan — kunci yang sama dipakai untuk naskah, suara, dan visual. Tanpa kunci, gambar dan video tidak bisa dibuat.
         </p>
       )}
-      {provider === 'chatgpt-web' && hasKey === false && (
-        <p className="text-[12.5px] leading-snug text-muted">
-          Login ChatGPT dulu di Pengaturan (bagian ChatGPT Web) — gambar dibuat lewat browser chatgpt.com pakai kuota free akunmu.
-        </p>
-      )}
       {provider === 'custom' && hasKey === false && (
         <p className="text-[12.5px] leading-snug text-muted">
           Isi alamat endpoint + kunci custom dulu di Pengaturan (bagian Penyusun cerita) — endpoint yang sama dipakai untuk naskah dan gambar.
@@ -219,11 +200,7 @@ export function ModelSection({
         <Card icon={<Film className="size-4" />} title="Video AI">
           {!video ? (
             <p className="text-[12.5px] leading-snug text-ink-2">
-              {provider === 'openai'
-                ? 'OpenAI Images API hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.'
-                : provider === 'custom'
-                  ? 'Endpoint custom hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.'
-                  : 'ChatGPT Web hanya bisa membuat gambar — tidak ada video AI di penyedia ini. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.'}
+              Penyedia ini hanya bisa membuat gambar — tidak ada video AI. Pilih Higgsfield atau Gemini kalau klip mau dianimasikan jadi video.
             </p>
           ) : (
             <>
