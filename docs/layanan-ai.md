@@ -24,10 +24,11 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
 | `openrouter`, `groq`, `custom`, `openai` | LLM lewat API kompatibel OpenAI |
 | ChatGPT Web (tanpa kunci) | visual gambar saja, lewat browser |
 | `openai` | visual gambar saja, lewat Images API resmi |
+| `custom` | visual gambar saja, lewat endpoint OpenAI-compatible sendiri (misal 9Router) |
 
 ## Visual (`services/visual.ts`, `services/gemini-visual.ts`, `services/chatgpt-web.ts`, `shared/visual.ts`)
 
-- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, `chatgpt-web`, atau `openai`, dipilih per proyek
+- Gambar dan video AI dibuat lewat satu adapter (`VisualAdapter`): `higgsfield`, `gemini`, `chatgpt-web`, `openai`, atau `custom`, dipilih per proyek
   (`project.visualProvider`, kolom `visual_provider`; proyek lama tanpa kolom dibaca sebagai `higgsfield`, dan nilai di luar daftar itu juga jatuh ke `higgsfield`).
   `generation.ts` tidak lagi memanggil Higgsfield langsung.
 - Higgsfield: seperti sebelumnya — gambar lewat `submitImage`, video lewat `submitVideo`, hasil diunduh dari URL,
@@ -50,6 +51,11 @@ Pengguna memasukkan kuncinya sendiri di **Pengaturan › Layanan AI dan kunci**.
   (16:9 → 1536x1024, 9:16 → 1024x1536), hasil selalu base64 (`b64_json`, PNG). Tagihan per pemakaian (~$0,01–0,05 per
   gambar menengah), jadi `estimate` selalu null dan UI menampilkan catatan tagihan. Kunci yang sama juga dipakai sebagai
   penyedia LLM (GPT-5 dkk. lewat `/v1/chat/completions` dan daftar model dari `GET /v1/models`).
+- **Custom: endpoint gambar OpenAI-compatible sendiri** (misal 9Router) — adapter yang sama dengan OpenAI, tapi alamat +
+  kunci diambil dari pengaturan custom (yang sama dengan naskah), dan body permintaan sengaja minimal (tanpa `quality`,
+  `input_fidelity`, `output_format`) supaya router generik tidak menolak parameter yang tidak dikenalnya. ID model gambar
+  diketik pengguna di picker (bawaan `gpt-image-1.5`); jawaban boleh base64 (`b64_json`) atau URL (diunduh). Tagihan
+  mengikuti router pengguna, jadi `estimate` selalu null.
 - ChatGPT Web: **tanpa API** — ChatGPT web tidak punya API gambar publik, jadi driver (`services/chatgpt-web.ts`,
   Playwright) menyetir chatgpt.com di browser sungguhan: login sekali (sesi tersimpan di folder profil
   `chatgpt-web` di data aplikasi), tiap gambar dibuat di chat baru dengan prompt diketik, lembar karakter

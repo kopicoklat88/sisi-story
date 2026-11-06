@@ -583,7 +583,9 @@ function HiggsfieldSection({ statusOf, onChanged }: { statusOf: (p: ApiProvider)
             Semua {visualImageModels('higgsfield').length} model gambar dan {visualVideoModels('higgsfield').length} model video Higgsfield bisa dipakai.
             Alternatifnya, pilih <strong className="text-ink">Gemini</strong> sebagai penyedia visual ({visualImageModels('gemini').length} model gambar Nano
             Banana dan {visualVideoModels('gemini').length} model video Omni Flash) — pakai kunci Gemini yang sama — atau{' '}
-            <strong className="text-ink">ChatGPT Web</strong> untuk gambar gratis lewat kuota free akun ChatGPT (tanpa kunci API, tanpa video).
+            <strong className="text-ink">ChatGPT Web</strong> untuk gambar gratis lewat kuota free akun ChatGPT (tanpa kunci API, tanpa video), atau{' '}
+            <strong className="text-ink">Custom</strong> untuk endpoint OpenAI-compatible kamu sendiri (misal 9Router) — pakai alamat + kunci custom yang
+            sama dengan naskah, lalu ketik ID model gambarnya di Model AI.
             Modelnya dipilih per proyek di langkah <strong className="text-ink">Ide cerita</strong>, bagian Model AI.
           </span>
         </p>

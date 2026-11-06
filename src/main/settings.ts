@@ -57,6 +57,12 @@ export function getSettings(): AppSettings {
     image: getVisualImageModel('openai', openai.image).id,
     video: ''
   }
+  // Custom endpoint: image-only, any model id the user typed stays valid.
+  const custom = out.visualModels.custom ?? DEFAULT_SETTINGS.visualModels.custom
+  out.visualModels.custom = {
+    image: getVisualImageModel('custom', custom.image).id,
+    video: ''
+  }
   return out
 }
 

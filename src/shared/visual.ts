@@ -15,8 +15,9 @@ import type { ModelOption, VisualProvider } from './types'
 /**
  * Who draws the clip images and animates them. Higgsfield is the original provider; Gemini
  * (Nano Banana images + Omni Flash video, through the Interactions API) is the second one, ChatGPT Web
- * (GPT Image in the browser) the third, and OpenAI (GPT Image through the official Images API — the
- * same model as ChatGPT web, but as a real backend: no browser, no bot check) the fourth. Any later
+ * (GPT Image in the browser) the third, OpenAI (GPT Image through the official Images API — the
+ * same model as ChatGPT web, but as a real backend: no browser, no bot check) the fourth, and Custom
+ * (any OpenAI-compatible image endpoint, e.g. the user's own router) the fifth. Any later
  * provider only needs a catalog here plus an adapter in main/services/visual.ts.
  */
 export type { VisualProvider } from './types'
@@ -25,7 +26,8 @@ export const VISUAL_PROVIDERS: { id: VisualProvider; label: string; note: string
   { id: 'higgsfield', label: 'Higgsfield', note: '14 model gambar, 34 model video · bayar per kredit' },
   { id: 'gemini', label: 'Gemini', note: 'Nano Banana + Omni Flash · pakai kunci Gemini yang sama, bayar per pemakaian' },
   { id: 'chatgpt-web', label: 'ChatGPT Web', note: 'GPT Image lewat browser · kuota free akun ChatGPT, tanpa kunci API' },
-  { id: 'openai', label: 'OpenAI', note: 'GPT Image lewat API resmi · ~$0,01–0,05 per gambar, tanpa browser' }
+  { id: 'openai', label: 'OpenAI', note: 'GPT Image lewat API resmi · ~$0,01–0,05 per gambar, tanpa browser' },
+  { id: 'custom', label: 'Custom', note: 'Endpoint OpenAI-compatible sendiri, misal 9Router · pakai alamat + kunci custom' }
 ]
 
 /** One image or video model from either provider, in the shape pickers and generation share. */
@@ -213,13 +215,40 @@ const OPENAI_IMAGE_MODELS: VisualModel[] = [
 
 export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-1.5'
 
+/**
+ * Custom image endpoint (any OpenAI-compatible Images API, e.g. the user's own router): the model
+ * id is typed by the user in the picker, so any id resolves to a model of that name. The default
+ * is GPT Image 1.5 — the same id the official API uses.
+ */
+export const DEFAULT_CUSTOM_IMAGE_MODEL = 'gpt-image-1.5'
+
+export function customImageModel(id: string): VisualModel {
+  const clean = id.trim() || DEFAULT_CUSTOM_IMAGE_MODEL
+  return {
+    id: clean,
+    provider: 'custom',
+    name: clean,
+    family: 'custom',
+    kind: 'image',
+    description: 'Model gambar dari endpoint custom kamu',
+    tags: ['Referensi'],
+    inputMode: 'reference',
+    maxRefs: 16,
+    promptLimit: 4000,
+    durations: null,
+    resolutions: null
+  }
+}
+
 export const DEFAULT_VISUAL_MODELS: Record<VisualProvider, { image: string; video: string }> = {
   higgsfield: { image: HF_DEFAULT_IMAGE_MODEL, video: HF_DEFAULT_VIDEO_MODEL },
   gemini: { image: DEFAULT_GEMINI_IMAGE_MODEL, video: DEFAULT_GEMINI_VIDEO_MODEL },
   // ChatGPT Web has no video model; the empty video id means "no video for this provider".
   'chatgpt-web': { image: DEFAULT_CHATGPT_WEB_IMAGE_MODEL, video: '' },
   // OpenAI Images API is image-only too.
-  openai: { image: DEFAULT_OPENAI_IMAGE_MODEL, video: '' }
+  openai: { image: DEFAULT_OPENAI_IMAGE_MODEL, video: '' },
+  // Custom endpoint: image-only, model id typed by the user.
+  custom: { image: DEFAULT_CUSTOM_IMAGE_MODEL, video: '' }
 }
 
 function fromHf(m: HfModel): VisualModel {
@@ -243,17 +272,20 @@ export function visualImageModels(provider: VisualProvider): VisualModel[] {
   if (provider === 'gemini') return GEMINI_IMAGE_MODELS
   if (provider === 'chatgpt-web') return CHATGPT_WEB_IMAGE_MODELS
   if (provider === 'openai') return OPENAI_IMAGE_MODELS
+  if (provider === 'custom') return [customImageModel(DEFAULT_CUSTOM_IMAGE_MODEL)]
   return HF_IMAGE_MODELS.map(fromHf)
 }
 
 export function visualVideoModels(provider: VisualProvider): VisualModel[] {
   if (provider === 'gemini') return GEMINI_VIDEO_MODELS
-  // ChatGPT Web and OpenAI Images API are image-only.
-  if (provider === 'chatgpt-web' || provider === 'openai') return []
+  // ChatGPT Web, OpenAI Images API, and custom endpoints are image-only.
+  if (provider === 'chatgpt-web' || provider === 'openai' || provider === 'custom') return []
   return HF_VIDEO_MODELS.map(fromHf)
 }
 
 export function getVisualImageModel(provider: VisualProvider, id: string | null | undefined): VisualModel {
+  // Custom endpoints take any model id the user types, so the id itself is the model.
+  if (provider === 'custom') return customImageModel(id ?? '')
   const list = visualImageModels(provider)
   return list.find((m) => m.id === id) ?? list.find((m) => m.id === DEFAULT_VISUAL_MODELS[provider].image)!
 }

@@ -110,6 +110,17 @@ satu waktu; pembatalan hanya membuang hasil di sisi kita. Penyedia ini gambar sa
 mengembalikan null untuknya dan semua pemakai (ModelSection, StoryboardStep, `generateClipVideo`) menanganinya
 sebagai "tidak ada video".
 
+### Penyedia visual Custom: BYOK lewat router sendiri (9Router)
+Satu kunci dan satu alamat endpoint custom sudah melayani naskah — penyedia visual `custom` memakai keduanya
+untuk gambar juga, supaya pengguna yang menjalankan router OpenAI-compatible sendiri (misal 9Router di Hermes)
+tidak perlu kunci gambar terpisah. Adapter-nya sama dengan OpenAI (`openaiCompatibleAdapter`), dengan tiga
+penyesuaian: alamat + kunci dari pengaturan custom, body permintaan minimal (tanpa parameter khusus OpenAI),
+dan jawaban boleh URL (diunduh) selain base64. ID model gambar diketik pengguna di picker Model AI (bawaan
+`gpt-image-1.5`) — router yang berbeda melayani model yang berbeda, jadi tidak ada katalog statis. Syarat di
+sisi pengguna: routernya sendiri harus punya model gambar yang dikonfigurasi, dan alamatnya harus bisa
+dijangkau dari mesin tempat aplikasi jalan (bukan `127.0.0.1` di VPS — pakai alamat Tailscale VPS atau URL
+publik router itu).
+
 ### OpenAI Images API: pintu depan setelah empat jalur browser gagal
 Empat jalur ChatGPT Web (CDP, profil asli, profil baru, ekstensi Chrome) semuanya mengendalikan atau menumpang
 browser pengguna, dan keempatnya pernah gagal di mesin pengguna — flag debug tidak sampai, profil terkunci,

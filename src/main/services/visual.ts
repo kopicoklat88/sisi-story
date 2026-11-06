@@ -7,6 +7,7 @@ import * as geminiVisual from './gemini-visual'
 import * as hf from './higgsfield'
 import { downloadTo } from './http'
 import { getSecret } from '../secrets'
+import { getSettings } from '../settings'
 
 /**
  * The visual provider boundary. Generation asks for an image or a video through this interface
@@ -134,6 +135,7 @@ export function adapter(provider: VisualProvider): VisualAdapter {
   if (provider === 'gemini') return geminiAdapter()
   if (provider === 'chatgpt-web') return chatGptWebAdapter()
   if (provider === 'openai') return openaiAdapter()
+  if (provider === 'custom') return customVisualAdapter()
   return higgsfieldAdapter()
 }
 
@@ -181,6 +183,11 @@ async function waitForExtensionJob(
  * starts at 1.5. Generations are a JSON call; with references it is a multipart /edits call
  * (up to 16 images, input_fidelity high so character sheets stay faithful). The API always
  * answers with base64, and bills per use (~$0,01–0,05 per image at medium quality).
+ *
+ * The same shape serves a custom endpoint ('custom'): the user's own OpenAI-compatible router
+ * (e.g. 9Router), with its base URL + key from the custom LLM settings. A custom endpoint may
+ * serve any image model, so the request body stays minimal (no quality, no input_fidelity, no
+ * output_format — those are OpenAI-only), and the answer may come back as a URL instead of base64.
  */
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1'
 
@@ -190,13 +197,20 @@ function openaiSize(aspect: AspectRatio): string {
   return '1024x1024'
 }
 
-function friendlyOpenai(status: number, body: string): string {
+function friendlyOpenai(kind: 'openai' | 'custom', status: number, body: string): string {
   let message = ''
   try {
     const parsed = JSON.parse(body) as { error?: { message?: string; code?: string } }
     message = parsed.error?.message ?? ''
   } catch {
     message = ''
+  }
+  if (kind === 'custom') {
+    if (status === 401) return 'Kunci custom ditolak. Periksa kunci + alamat endpoint custom di Pengaturan.'
+    if (status === 429 || /insufficient_quota|billing/i.test(message)) {
+      return 'Endpoint custom menolak permintaan (kuota atau saldo habis?). Cek router kamu.'
+    }
+    return message ? `Endpoint custom: ${message}` : `Endpoint custom menjawab dengan status ${status}.`
   }
   if (status === 401) return 'Kunci OpenAI ditolak. Periksa kunci di Pengaturan › Gambar dan video.'
   if (status === 429 || /insufficient_quota|billing/i.test(message)) {
@@ -207,43 +221,58 @@ function friendlyOpenai(status: number, body: string): string {
 
 const openaiRuns = new Map<string, Promise<{ bytes: Buffer; mime: string }>>()
 
-function openaiAdapter(): VisualAdapter {
+function openaiCompatibleAdapter(kind: 'openai' | 'custom'): VisualAdapter {
+  const keyHint = kind === 'custom' ? 'Isi alamat endpoint + kunci custom dulu di Pengaturan › Penyusun cerita.' : 'Isi kunci OpenAI dulu di Pengaturan › Gambar dan video.'
   return {
     submitImage: (input, signal) => {
-      const key = getSecret('openai')
-      if (!key) return Promise.reject(new Error('Isi kunci OpenAI dulu di Pengaturan › Gambar dan video.'))
+      const base =
+        kind === 'custom' ? getSettings().customBaseUrl.trim().replace(/\/+$/, '') : OPENAI_BASE_URL
+      if (kind === 'custom' && !base) return Promise.reject(new Error(keyHint))
+      const key = getSecret(kind)
+      if (!key) return Promise.reject(new Error(keyHint))
       const size = openaiSize(input.aspect)
       const refs = (input.refs ?? []).filter((r) => r.bytes).slice(0, 16)
       const headers: Record<string, string> = { Authorization: `Bearer ${key}` }
       const call =
         refs.length > 0
           ? (() => {
-              // Edits: references travel as multipart files; input_fidelity high keeps the
-              // character sheets faithful instead of drifting.
               const form = new FormData()
               refs.forEach((r, i) => form.append('image[]', new File([r.bytes as Buffer], `ref-${i + 1}.png`, { type: r.mime })))
               form.append('prompt', input.prompt)
               form.append('model', input.model.id)
               form.append('size', size)
-              form.append('quality', 'medium')
-              form.append('input_fidelity', 'high')
-              form.append('output_format', 'png')
-              return fetch(`${OPENAI_BASE_URL}/images/edits`, { method: 'POST', headers, body: form, signal })
+              // OpenAI-only knobs (quality, input_fidelity, output_format) stay out of the
+              // custom body: a generic router may reject parameters it does not know.
+              if (kind === 'openai') {
+                form.append('quality', 'medium')
+                form.append('input_fidelity', 'high')
+                form.append('output_format', 'png')
+              }
+              return fetch(`${base}/images/edits`, { method: 'POST', headers, body: form, signal })
             })()
-          : fetch(`${OPENAI_BASE_URL}/images/generations`, {
+          : fetch(`${base}/images/generations`, {
               method: 'POST',
               headers: { ...headers, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: input.prompt, model: input.model.id, size, quality: 'medium', n: 1, output_format: 'png' }),
+              body: JSON.stringify(
+                kind === 'openai'
+                  ? { prompt: input.prompt, model: input.model.id, size, quality: 'medium', n: 1, output_format: 'png' }
+                  : { prompt: input.prompt, model: input.model.id, size, n: 1 }
+              ),
               signal
             })
-      const id = `openai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const id = `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const promise = call
         .then(async (res) => {
-          if (!res.ok) throw new Error(friendlyOpenai(res.status, await res.text()))
-          const data = (await res.json()) as { data?: { b64_json?: string }[] }
-          const b64 = data.data?.[0]?.b64_json
-          if (!b64) throw new Error('OpenAI tidak mengembalikan gambar.')
-          return { bytes: Buffer.from(b64, 'base64'), mime: 'image/png' }
+          if (!res.ok) throw new Error(friendlyOpenai(kind, res.status, await res.text()))
+          const data = (await res.json()) as { data?: { b64_json?: string; url?: string }[] }
+          const first = data.data?.[0]
+          if (first?.b64_json) return { bytes: Buffer.from(first.b64_json, 'base64'), mime: 'image/png' }
+          // Some compatible endpoints answer with a hosted URL instead of base64.
+          if (first?.url) {
+            const downloaded = await downloadTo(first.url, signal)
+            return { bytes: downloaded.bytes, mime: downloaded.contentType || 'image/png' }
+          }
+          throw new Error(kind === 'custom' ? 'Endpoint custom tidak mengembalikan gambar.' : 'OpenAI tidak mengembalikan gambar.')
         })
         .catch((e) => {
           if ((e as Error).name === 'AbortError') throw new Error('Dibatalkan')
@@ -253,11 +282,18 @@ function openaiAdapter(): VisualAdapter {
       void promise.catch(() => {}).finally(() => openaiRuns.delete(id))
       return Promise.resolve(id)
     },
-    submitVideo: () => Promise.reject(new Error('OpenAI Images API hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')),
+    submitVideo: () =>
+      Promise.reject(
+        new Error(
+          kind === 'custom'
+            ? 'Endpoint custom hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.'
+            : 'OpenAI Images API hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.'
+        )
+      ),
     waitForResult: async (remoteId, kind, onTick, signal) => {
-      if (kind === 'video') throw new Error('OpenAI Images API hanya bisa membuat gambar.')
+      if (kind === 'video') throw new Error('Endpoint ini hanya bisa membuat gambar.')
       const run = openaiRuns.get(remoteId)
-      if (!run) throw new Error('Job OpenAI tidak ditemukan (mungkin aplikasi dimulai ulang).')
+      if (!run) throw new Error('Job gambar tidak ditemukan (mungkin aplikasi dimulai ulang).')
       onTick('in_progress', 0)
       const result = signal
         ? await Promise.race([
@@ -272,11 +308,14 @@ function openaiAdapter(): VisualAdapter {
     // Per-use billing, no estimate endpoint.
     estimate: async () => null,
     testCredentials: async (cred) => {
-      const key = cred ?? getSecret('openai')
-      if (!key) return { ok: false, message: 'Isi kunci OpenAI dulu di Pengaturan › Gambar dan video.' }
+      const base =
+        kind === 'custom' ? getSettings().customBaseUrl.trim().replace(/\/+$/, '') : OPENAI_BASE_URL
+      const key = cred ?? getSecret(kind)
+      if (!key) return { ok: false, message: keyHint }
+      if (kind === 'custom' && !base) return { ok: false, message: keyHint }
       try {
-        const res = await fetch(`${OPENAI_BASE_URL}/models`, { headers: { Authorization: `Bearer ${key}` } })
-        if (!res.ok) return { ok: false, message: friendlyOpenai(res.status, await res.text()) }
+        const res = await fetch(`${base}/models`, { headers: { Authorization: `Bearer ${key}` } })
+        if (!res.ok) return { ok: false, message: friendlyOpenai(kind, res.status, await res.text()) }
         const data = (await res.json()) as { data?: unknown[] }
         return { ok: true, message: `Terhubung · ${data.data?.length ?? 0} model tersedia` }
       } catch (e) {
@@ -284,6 +323,14 @@ function openaiAdapter(): VisualAdapter {
       }
     }
   }
+}
+
+function openaiAdapter(): VisualAdapter {
+  return openaiCompatibleAdapter('openai')
+}
+
+function customVisualAdapter(): VisualAdapter {
+  return openaiCompatibleAdapter('custom')
 }
 
 function chatGptWebAdapter(): VisualAdapter {

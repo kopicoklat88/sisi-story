@@ -6,7 +6,7 @@
 
 **Ubah ide cerita jadi video YouTube, langsung dari komputermu.**
 
-AI menyusun naskah dan visual, Higgsfield, Gemini, ChatGPT Web, atau OpenAI membuat gambar dan video, narator AI mengisi suara,<br>
+AI menyusun naskah dan visual, Higgsfield, Gemini, ChatGPT Web, OpenAI, atau endpoint custom membuat gambar dan video, narator AI mengisi suara,<br>
 lalu kamu merapikannya di editor timeline dan mengekspor MP4.
 
 [![Versi](https://img.shields.io/badge/versi-1.0.0-c93a1b?style=flat-square)](CHANGELOG.md)
@@ -44,7 +44,7 @@ Semua proyek, gambar, video, dan suara disimpan di komputermu. Kamu memakai kunc
   - bahasa dan format (16:9 atau 9:16);
   - gaya visual (2D, 3D, atau realistis);
   - suara narator.
-- Pilih model gambar dan video per proyek (Higgsfield, Gemini, ChatGPT Web, atau OpenAI), lengkap dengan perkiraan kredit.
+- Pilih model gambar dan video per proyek (Higgsfield, Gemini, ChatGPT Web, OpenAI, atau endpoint custom), lengkap dengan perkiraan kredit.
 
 **2. Naskah**
 - AI menulis alur dan narasi (VO) setiap adegan. Adegan bisa diubah, ditambah, dihapus, dan diurutkan ulang.
@@ -56,7 +56,7 @@ Semua proyek, gambar, video, dan suara disimpan di komputermu. Kamu memakai kunc
   - pemeran beserta lembar karakter;
   - gerak kamera dan transisi;
   - arahan gerak untuk video AI.
-- Tersedia 14 model gambar dan 34 model video dari Higgsfield, plus Nano Banana dan Omni Flash dari Gemini, plus GPT Image lewat ChatGPT Web (kuota free akun ChatGPT, gambar saja) atau lewat OpenAI Images API (GPT Image 1.5/2, bayar per gambar, tanpa browser).
+- Tersedia 14 model gambar dan 34 model video dari Higgsfield, plus Nano Banana dan Omni Flash dari Gemini, plus GPT Image lewat ChatGPT Web (kuota free akun ChatGPT, gambar saja), lewat OpenAI Images API (GPT Image 1.5/2, bayar per gambar, tanpa browser), atau lewat endpoint custom kamu sendiri (misal 9Router).
 - Narasi direkam dalam satu rekaman utuh (Gemini TTS atau ElevenLabs), lalu dipotong otomatis per adegan. Suara dan intonasinya jadi konsisten.
 
 **4. Editor**
