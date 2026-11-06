@@ -12,11 +12,9 @@ import { getSettings } from '../settings'
  * and never touches a provider API directly, so adding a provider means one adapter here plus
  * a catalog in shared/visual.ts — no changes to generation, jobs, or the pickers.
  *
- * Results are always bytes: Higgsfield answers with a URL (downloaded here), Gemini with
- * base64 inside the interaction, ChatGPT Web with a file downloaded from the browser reply.
- * References travel as local bytes; only Higgsfield needs a public URL for them, which
- * generation fills in before submitting. ChatGPT Web writes reference bytes to temp files for
- * the browser's file picker.
+ * Results are always bytes: Higgsfield answers with a URL (downloaded here), Gemini and Custom
+ * with base64 inside the interaction. References travel as local bytes; only Higgsfield needs a
+ * public URL for them, which generation fills in before submitting.
  */
 export interface VisualRef {
   /** Local bytes (Gemini reads references inline; Higgsfield fetches them by URL instead). */

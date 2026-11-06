@@ -10,7 +10,6 @@ const file = (path: string): string | undefined => FILES[`../assets/${path}`]
 
 const FAMILY_LOGO: Record<string, { src: string; bg: string; inset: number }> = {
   'GPT Image': { src: 'models/openai.svg', bg: '#FFFFFF', inset: 0.2 },
-  chatgpt: { src: 'models/openai.svg', bg: '#FFFFFF', inset: 0.2 },
   Soul: { src: 'providers/higgsfield.png', bg: '#D1FE17', inset: 0 },
   'Cinema Studio': { src: 'providers/higgsfield.png', bg: '#D1FE17', inset: 0 },
   Grok: { src: 'models/grok.svg', bg: '#FFFFFF', inset: 0.2 },

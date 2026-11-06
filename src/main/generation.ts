@@ -339,7 +339,7 @@ export function generateClipVideo(clipId: string): Job {
     if (!image) throw new Error('Gambar klip tidak ditemukan')
     const project = getProject(fresh.projectId)
     const model = getVisualVideoModel(project.visualProvider, project.videoModel)
-    if (!model) throw new Error('ChatGPT Web hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')
+    if (!model) throw new Error('Penyedia ini hanya bisa membuat gambar. Pilih Higgsfield atau Gemini untuk video AI.')
     ctx.progress(0.05, 'Menyiapkan gambar awal')
     const chars = charactersOf(project.id).filter((c) => fresh.characterIds.includes(c.id))
     const sheets = await referenceRefs(project.visualProvider, model, chars, ctx.signal)

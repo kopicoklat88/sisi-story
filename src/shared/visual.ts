@@ -218,7 +218,7 @@ export function getVisualImageModel(provider: VisualProvider, id: string | null 
   return list.find((m) => m.id === id) ?? list.find((m) => m.id === DEFAULT_VISUAL_MODELS[provider].image)!
 }
 
-/** Null when the provider has no video models (ChatGPT Web). Callers must handle that. */
+/** Null when the provider has no video models (the custom endpoint is image-only). Callers must handle that. */
 export function getVisualVideoModel(provider: VisualProvider, id: string | null | undefined): VisualModel | null {
   const list = visualVideoModels(provider)
   if (!list.length) return null
